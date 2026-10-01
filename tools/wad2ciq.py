@@ -165,7 +165,25 @@ def convert_colors(wad):
         # F1_START/F1_END style markers are empty but still count as flats.
         flats += lit_colors(list(data[:4096]), playpal, colormap) if len(data) >= 4096 else [0] * 32
 
+    # Names, so p_spec/p_switch can find texture and flat numbers by name
+    # (R_TextureNumForName, R_FlatNumForName) for switches and animations,
+    # and texture heights for raiseToTexture floors.
+    flatnames = [wad.lumps[i][0] for i in range(firstflat, lastflat + 1)]
+    heights = []
+    for lumpname in ("TEXTURE1", "TEXTURE2"):
+        i = wad.num_for_name(lumpname)
+        if i < 0:
+            continue
+        data = wad.lump(i)
+        (count,) = struct.unpack_from("<i", data, 0)
+        for t in range(count):
+            (ofs,) = struct.unpack_from("<i", data, 4 + t * 4)
+            heights.append(struct.unpack_from("<h", data, ofs + 14)[0])
+
     return {
+        "texturenames": texture_names(wad),
+        "textureheights": heights,
+        "flatnames": flatnames,
         "texturecolors": tex,
         "flatcolors": flats,
         # G_DoLoadLevel: SKYFLATNAME is F_SKY1, and episode 1 uses SKY1.
