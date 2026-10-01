@@ -31,6 +31,8 @@ module SSound {
     const sfx_punch = 83;
     const sfx_getpow = 93;
     // end of p_pspr / p_inter sounds
+    // sfx_* numbers from sounds.h used by p_map.c
+    const sfx_noway = 81;
 
     function S_Start() as Void {
     }
