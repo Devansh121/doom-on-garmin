@@ -54,6 +54,34 @@ module RPlane {
         RSegs.lastopening = RSegs.FIRSTOPENING;
     }
 
+    // R_FindPlane for a sector's floor or ceiling, remembered per sector
+    // for the rest of the frame: a sector's height, pic and light can't
+    // change mid-frame, so R_FindPlane would return the same plane, and
+    // its linear search runs twice per subsector otherwise.
+    var cacheframe as Array<Number> = [] as Array<Number>;
+    var cacheplane as Array<Number> = [] as Array<Number>;
+
+    function R_FindSectorPlane(sec as Number, ceiling as Boolean) as Number {
+        var n = PSetup.numsectors * 2;
+        if (cacheframe.size() != n) {
+            cacheframe = new [n] as Array<Number>;
+            cacheplane = new [n] as Array<Number>;
+            for (var i = 0; i < n; i++) {
+                cacheframe[i] = -1;
+            }
+        }
+        var k = sec * 2 + (ceiling ? 1 : 0);
+        if (cacheframe[k] == RMain.framecount) {
+            return cacheplane[k];
+        }
+        var plane = ceiling
+            ? R_FindPlane(PSetup.sectors_ceilingheight[sec], PSetup.sectors_ceilingpic[sec], PSetup.sectors_lightlevel[sec])
+            : R_FindPlane(PSetup.sectors_floorheight[sec], PSetup.sectors_floorpic[sec], PSetup.sectors_lightlevel[sec]);
+        cacheframe[k] = RMain.framecount;
+        cacheplane[k] = plane;
+        return plane;
+    }
+
     //
     // R_FindPlane
     //

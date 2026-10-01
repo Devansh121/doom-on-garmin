@@ -192,122 +192,12 @@ module RBsp {
     }
 
     //
-    // R_AddLine
-    // Clips the given segment
-    // and adds any visible pieces to the line list.
-    //
-    function R_AddLine(line as Number) as Void {
-        var clipangle = RMain.clipangle;
-
-        // Culled lines still cost something; count them so the frame
-        // budget sees it.
-        RSegs.work++;
-
-        curline = line;
-
-        // OPTIMIZE: quickly reject orthogonal back sides.
-        var v1 = PSetup.segs_v1[line];
-        var v2 = PSetup.segs_v2[line];
-        var angle1 = RMain.R_PointToAngle(PSetup.vertexes_x[v1], PSetup.vertexes_y[v1]);
-        var angle2 = RMain.R_PointToAngle(PSetup.vertexes_x[v2], PSetup.vertexes_y[v2]);
-
-        // Clip to view edges.
-        // OPTIMIZE: make constant out of 2*clipangle (FIELDOFVIEW).
-        var span = angle1 - angle2;
-
-        // Back side? I.e. backface culling?
-        if (DoomType.UGE(span, Tables.ANG180)) {
-            return;
-        }
-
-        // Global angle needed by segcalc.
-        RSegs.rw_angle1 = angle1;
-        angle1 -= RMain.viewangle;
-        angle2 -= RMain.viewangle;
-
-        var tspan = angle1 + clipangle;
-        if (DoomType.UGT(tspan, 2 * clipangle)) {
-            tspan -= 2 * clipangle;
-
-            // Totally off the left edge?
-            if (DoomType.UGE(tspan, span)) {
-                return;
-            }
-
-            angle1 = clipangle;
-        }
-        tspan = clipangle - angle2;
-        if (DoomType.UGT(tspan, 2 * clipangle)) {
-            tspan -= 2 * clipangle;
-
-            // Totally off the left edge?
-            if (DoomType.UGE(tspan, span)) {
-                return;
-            }
-            angle2 = -clipangle;
-        }
-
-        // The seg is in the view range,
-        // but not necessarily visible.
-        angle1 = DoomType.USHR(angle1 + Tables.ANG90, Tables.ANGLETOFINESHIFT);
-        angle2 = DoomType.USHR(angle2 + Tables.ANG90, Tables.ANGLETOFINESHIFT);
-        var x1 = RMain.viewangletox[angle1];
-        var x2 = RMain.viewangletox[angle2];
-
-        // Does not cross a pixel?
-        if (x1 == x2) {
-            return;
-        }
-
-        backsector = PSetup.segs_backsector[line];
-
-        // Single sided line?
-        if (backsector == -1) {
-            // goto clipsolid
-            R_ClipSolidWallSegment(x1, x2 - 1);
-            return;
-        }
-
-        var bceil = PSetup.sectors_ceilingheight[backsector];
-        var bfloor = PSetup.sectors_floorheight[backsector];
-        var fceil = PSetup.sectors_ceilingheight[frontsector];
-        var ffloor = PSetup.sectors_floorheight[frontsector];
-
-        // Closed door.
-        if (bceil <= ffloor || bfloor >= fceil) {
-            // goto clipsolid
-            R_ClipSolidWallSegment(x1, x2 - 1);
-            return;
-        }
-
-        // Window.
-        if (bceil != fceil || bfloor != ffloor) {
-            // goto clippass
-            R_ClipPassWallSegment(x1, x2 - 1);
-            return;
-        }
-
-        // Reject empty lines used for triggers
-        //  and special events.
-        // Identical floor and ceiling on both sides,
-        // identical light levels on both sides,
-        // and no middle texture.
-        if (PSetup.sectors_ceilingpic[backsector] == PSetup.sectors_ceilingpic[frontsector]
-            && PSetup.sectors_floorpic[backsector] == PSetup.sectors_floorpic[frontsector]
-            && PSetup.sectors_lightlevel[backsector] == PSetup.sectors_lightlevel[frontsector]
-            && PSetup.sides_midtexture[PSetup.segs_sidedef[line]] == 0) {
-            return;
-        }
-
-        // clippass:
-        R_ClipPassWallSegment(x1, x2 - 1);
-    }
-
-    //
     // R_CheckBBox
     // Checks BSP node/subtree bounding box.
     // Returns true
     //  if some part of the bbox might be visible.
+    //
+    // (Done inline in R_RenderBSPNodeStep.)
     //
     // checkcoord[12][4], flattened
     var checkcoord as Array<Number> = [
@@ -324,144 +214,6 @@ module RBsp {
         2, 1, 3, 0,
         0, 0, 0, 0
     ] as Array<Number>;
-
-    // bspcoord is nodes_bbox[b .. b+3]
-    function R_CheckBBox(b as Number) as Boolean {
-        var bspcoord = PSetup.nodes_bbox;
-        var viewx = RMain.viewx;
-        var viewy = RMain.viewy;
-        var clipangle = RMain.clipangle;
-        var boxx;
-        var boxy;
-
-        // Find the corners of the box
-        // that define the edges from current viewpoint.
-        if (viewx <= bspcoord[b + MBBox.BOXLEFT]) {
-            boxx = 0;
-        } else if (viewx < bspcoord[b + MBBox.BOXRIGHT]) {
-            boxx = 1;
-        } else {
-            boxx = 2;
-        }
-
-        if (viewy >= bspcoord[b + MBBox.BOXTOP]) {
-            boxy = 0;
-        } else if (viewy > bspcoord[b + MBBox.BOXBOTTOM]) {
-            boxy = 1;
-        } else {
-            boxy = 2;
-        }
-
-        var boxpos = (boxy << 2) + boxx;
-        if (boxpos == 5) {
-            return true;
-        }
-
-        var c = boxpos * 4;
-        var x1 = bspcoord[b + checkcoord[c]];
-        var y1 = bspcoord[b + checkcoord[c + 1]];
-        var x2 = bspcoord[b + checkcoord[c + 2]];
-        var y2 = bspcoord[b + checkcoord[c + 3]];
-
-        // check clip list for an open space
-        var angle1 = RMain.R_PointToAngle(x1, y1) - RMain.viewangle;
-        var angle2 = RMain.R_PointToAngle(x2, y2) - RMain.viewangle;
-
-        var span = angle1 - angle2;
-
-        // Sitting on a line?
-        if (DoomType.UGE(span, Tables.ANG180)) {
-            return true;
-        }
-
-        var tspan = angle1 + clipangle;
-
-        if (DoomType.UGT(tspan, 2 * clipangle)) {
-            tspan -= 2 * clipangle;
-
-            // Totally off the left edge?
-            if (DoomType.UGE(tspan, span)) {
-                return false;
-            }
-
-            angle1 = clipangle;
-        }
-        tspan = clipangle - angle2;
-        if (DoomType.UGT(tspan, 2 * clipangle)) {
-            tspan -= 2 * clipangle;
-
-            // Totally off the left edge?
-            if (DoomType.UGE(tspan, span)) {
-                return false;
-            }
-
-            angle2 = -clipangle;
-        }
-
-        // Find the first clippost
-        //  that touches the source post
-        //  (adjacent pixels are touching).
-        angle1 = DoomType.USHR(angle1 + Tables.ANG90, Tables.ANGLETOFINESHIFT);
-        angle2 = DoomType.USHR(angle2 + Tables.ANG90, Tables.ANGLETOFINESHIFT);
-        var sx1 = RMain.viewangletox[angle1];
-        var sx2 = RMain.viewangletox[angle2];
-
-        // Does not cross a pixel.
-        if (sx1 == sx2) {
-            return false;
-        }
-        sx2--;
-
-        var start = 0;
-        while (solidsegs_last[start] < sx2) {
-            start++;
-        }
-
-        if (sx1 >= solidsegs_first[start] && sx2 <= solidsegs_last[start]) {
-            // The clippost contains the new span.
-            return false;
-        }
-
-        return true;
-    }
-
-    //
-    // R_Subsector
-    // Determine floor/ceiling planes.
-    // Add sprites of things in sector.
-    // Draw one or more line segments.
-    //
-    function R_Subsector(num as Number) as Void {
-        RMain.sscount++;
-        frontsector = PSetup.subsectors_sector[num];
-        var count = PSetup.subsectors_numlines[num];
-        var line = PSetup.subsectors_firstline[num];
-
-        if (PSetup.sectors_floorheight[frontsector] < RMain.viewz) {
-            RPlane.floorplane = RPlane.R_FindPlane(PSetup.sectors_floorheight[frontsector],
-                                                   PSetup.sectors_floorpic[frontsector],
-                                                   PSetup.sectors_lightlevel[frontsector]);
-        } else {
-            RPlane.floorplane = -1;
-        }
-
-        if (PSetup.sectors_ceilingheight[frontsector] > RMain.viewz
-            || PSetup.sectors_ceilingpic[frontsector] == RData.skyflatnum) {
-            RPlane.ceilingplane = RPlane.R_FindPlane(PSetup.sectors_ceilingheight[frontsector],
-                                                     PSetup.sectors_ceilingpic[frontsector],
-                                                     PSetup.sectors_lightlevel[frontsector]);
-        } else {
-            RPlane.ceilingplane = -1;
-        }
-
-        RThings.R_AddSprites(frontsector);
-
-        while (count > 0) {
-            count--;
-            R_AddLine(line);
-            line++;
-        }
-    }
 
     //
     // RenderBSPNode
@@ -481,12 +233,263 @@ module RBsp {
         bspsp = 1;
     }
 
+    //
+    // The seg ranges R_SubsectorLines found for the current subsector, in
+    // the order R_AddLine would have clipped them.
+    //
+    const MAXQUEUE = 64;
+    var qline as Array<Number> = new [MAXQUEUE] as Array<Number>;
+    var qback as Array<Number> = new [MAXQUEUE] as Array<Number>;
+    var qangle as Array<Number> = new [MAXQUEUE] as Array<Number>;
+    var qx1 as Array<Number> = new [MAXQUEUE] as Array<Number>;
+    var qx2 as Array<Number> = new [MAXQUEUE] as Array<Number>;
+    var qsolid as Array<Boolean> = new [MAXQUEUE] as Array<Boolean>;
+    var qcount as Number = 0;
+
+    // R_Subsector with R_AddLine and its R_PointToAngle calls inlined,
+    // except that a visible range is queued instead of clipped straight
+    // away. R_AddLine's tests only look at angles and sector heights, never
+    // at the clip list, so clipping the queue afterwards in order gives
+    // the same result.
+    function R_SubsectorLines(num as Number) as Void {
+        var ss_sector = PSetup.subsectors_sector;
+        var ss_numlines = PSetup.subsectors_numlines;
+        var ss_firstline = PSetup.subsectors_firstline;
+        var segs_v1 = PSetup.segs_v1;
+        var segs_v2 = PSetup.segs_v2;
+        var segs_backsector = PSetup.segs_backsector;
+        var segs_sidedef = PSetup.segs_sidedef;
+        var vx = PSetup.vertexes_x;
+        var vy = PSetup.vertexes_y;
+        var floorheight = PSetup.sectors_floorheight;
+        var ceilingheight = PSetup.sectors_ceilingheight;
+        var floorpic = PSetup.sectors_floorpic;
+        var ceilingpic = PSetup.sectors_ceilingpic;
+        var lightlevel = PSetup.sectors_lightlevel;
+        var midtexture = PSetup.sides_midtexture;
+        var viewx = RMain.viewx;
+        var viewy = RMain.viewy;
+        var viewz = RMain.viewz;
+        var viewangle = RMain.viewangle;
+        var clipangle = RMain.clipangle;
+        var clip2 = 2 * clipangle;
+        var viewangletox = RMain.viewangletox;
+        var tantoangle = Tables.tantoangle;
+        var skyflatnum = RData.skyflatnum;
+        var MININT = DoomType.MININT;
+        var px1 = 0;
+        var py1 = 0;
+        var px2 = 0;
+        var py2 = 0;
+        var angle1 = 0;
+        var angle2 = 0;
+        qcount = 0;
+
+        RMain.sscount++;
+        var front = ss_sector[num];
+        frontsector = front;
+        var count = ss_numlines[num];
+        var line = ss_firstline[num];
+        var ffloor = floorheight[front];
+        var fceil = ceilingheight[front];
+
+        if (ffloor < viewz) {
+            RPlane.floorplane = RPlane.R_FindSectorPlane(front, false);
+        } else {
+            RPlane.floorplane = -1;
+        }
+        if (fceil > viewz || ceilingpic[front] == skyflatnum) {
+            RPlane.ceilingplane = RPlane.R_FindSectorPlane(front, true);
+        } else {
+            RPlane.ceilingplane = -1;
+        }
+
+        RThings.R_AddSprites(front);
+
+        for (; count > 0; count--) {
+            // R_AddLine (line)
+            RSegs.work++;
+            curline = line;
+            var v1 = segs_v1[line];
+            var v2 = segs_v2[line];
+            px1 = vx[v1];
+            py1 = vy[v1];
+            px2 = vx[v2];
+            py2 = vy[v2];
+                // R_PointToAngle for both points (see RMain), folded so
+            // the two share one block
+            for (var k = 0; k < 2; k++) {
+                var x = (k == 0 ? px1 : px2) - viewx;
+                var y = (k == 0 ? py1 : py2) - viewy;
+                var t;
+                if (x == 0 && y == 0) {
+                    t = 0;
+                } else {
+                    var xneg = x < 0;
+                    var yneg = y < 0;
+                    if (xneg) {
+                        x = -x;
+                    }
+                    if (yneg) {
+                        y = -y;
+                    }
+                    var xbig = x > y;
+                    var num2 = xbig ? y : x;
+                    var den = xbig ? x : y;
+                    var q;
+                    if (num2 >= 0 && num2 < 0x10000000 && den >= 512) {
+                        q = (num2 << 3) / (den >> 8);
+                        if (q > Tables.SLOPERANGE) {
+                            q = Tables.SLOPERANGE;
+                        }
+                    } else {
+                        q = Tables.SlopeDiv(num2, den);
+                    }
+                    t = tantoangle[q];
+                    if (!xneg) {
+                        if (!yneg) {
+                            t = xbig ? t : Tables.ANG90 - 1 - t;
+                        } else {
+                            t = xbig ? -t : Tables.ANG270 + t;
+                        }
+                    } else if (!yneg) {
+                        t = xbig ? Tables.ANG180 - 1 - t : Tables.ANG90 + t;
+                    } else {
+                        t = xbig ? Tables.ANG180 + t : Tables.ANG270 - 1 - t;
+                    }
+                }
+                if (k == 0) {
+                    angle1 = t;
+                } else {
+                    angle2 = t;
+                }
+            }
+            var span = angle1 - angle2;
+
+            // Back side? I.e. backface culling?  (span >= ANG180)
+            if ((span ^ MININT) >= (Tables.ANG180 ^ MININT)) {
+                line++;
+                continue;
+            }
+
+            // Global angle needed by segcalc.
+            var rw_angle1 = angle1;
+            angle1 -= viewangle;
+            angle2 -= viewangle;
+
+            var tspan = angle1 + clipangle;
+            if ((tspan ^ MININT) > (clip2 ^ MININT)) {
+                tspan -= clip2;
+                // Totally off the left edge?
+                if ((tspan ^ MININT) >= (span ^ MININT)) {
+                    line++;
+                    continue;
+                }
+                angle1 = clipangle;
+            }
+            tspan = clipangle - angle2;
+            if ((tspan ^ MININT) > (clip2 ^ MININT)) {
+                tspan -= clip2;
+                if ((tspan ^ MININT) >= (span ^ MININT)) {
+                    line++;
+                    continue;
+                }
+                angle2 = -clipangle;
+            }
+
+            // The seg is in the view range,
+            // but not necessarily visible.
+            var x1 = viewangletox[((angle1 + Tables.ANG90) >> Tables.ANGLETOFINESHIFT) & 0x1fff];
+            var x2 = viewangletox[((angle2 + Tables.ANG90) >> Tables.ANGLETOFINESHIFT) & 0x1fff];
+
+            // Does not cross a pixel?
+            if (x1 == x2) {
+                line++;
+                continue;
+            }
+
+            var back = segs_backsector[line];
+
+            var solid = false;
+            var queued = false;
+            if (back == -1) {
+                // Single sided line: clipsolid
+                solid = true;
+                queued = true;
+            } else {
+                var bceil = ceilingheight[back];
+                var bfloor = floorheight[back];
+                if (bceil <= ffloor || bfloor >= fceil) {
+                    // Closed door: clipsolid
+                    solid = true;
+                    queued = true;
+                } else if (bceil != fceil || bfloor != ffloor) {
+                    // Window: clippass
+                    queued = true;
+                } else if (!(ceilingpic[back] == ceilingpic[front]
+                             && floorpic[back] == floorpic[front]
+                             && lightlevel[back] == lightlevel[front]
+                             && midtexture[segs_sidedef[line]] == 0)) {
+                    // not an empty trigger line: clippass
+                    queued = true;
+                }
+            }
+            if (queued) {
+                qline[qcount] = line;
+                qback[qcount] = back;
+                qangle[qcount] = rw_angle1;
+                qx1[qcount] = x1;
+                qx2[qcount] = x2;
+                qsolid[qcount] = solid;
+                qcount++;
+            }
+            line++;
+        }
+    }
+
     // Keeps walking until the tree is done (returns true) or until
     // RSegs.work reaches budget (returns false, call again to resume).
+    // Keeps walking until the tree is done (returns true) or until
+    // RSegs.work reaches budget (returns false, call again to resume).
+    //
+    // On the watch a function call costs ~50 us and a module variable
+    // read ~23 us, against well under 1 us for a local, and this loop
+    // visits every node and every seg of every visible subsector. So
+    // R_PointOnSide, R_CheckBBox, R_Subsector, R_AddLine and their
+    // R_PointToAngle calls (and DoomType's unsigned compares) are done
+    // inline here on locals loaded once per call. The steps and their
+    // order are the C code's (r_bsp.c's R_CheckBBox, R_Subsector and
+    // R_AddLine, and r_main.c's R_PointOnSide / R_PointToAngle).
     function R_RenderBSPNodeStep(budget as Number) as Boolean {
         var stack = bspstack;
-        var children = PSetup.nodes_children;
         var sp = bspsp;
+
+        var children = PSetup.nodes_children;
+        var nodes_x = PSetup.nodes_x;
+        var nodes_y = PSetup.nodes_y;
+        var nodes_dx = PSetup.nodes_dx;
+        var nodes_dy = PSetup.nodes_dy;
+        var bspcoord = PSetup.nodes_bbox;
+        var sf = solidsegs_first;
+        var sl = solidsegs_last;
+        var cc = checkcoord;
+
+        var viewx = RMain.viewx;
+        var viewy = RMain.viewy;
+        var viewangle = RMain.viewangle;
+        var clipangle = RMain.clipangle;
+        var clip2 = 2 * clipangle;
+        var viewangletox = RMain.viewangletox;
+        var tantoangle = Tables.tantoangle;
+        var MININT = DoomType.MININT;
+
+        // the two endpoints whose angles R_PointToAngle is asked for
+        var px1 = 0;
+        var py1 = 0;
+        var px2 = 0;
+        var py2 = 0;
+        var angle1 = 0;
+        var angle2 = 0;
 
         while (sp > 0) {
             if (RSegs.work >= budget) {
@@ -496,36 +499,206 @@ module RBsp {
             sp--;
             var bspnum = stack[sp];
 
+            // kind of step: 0 = divide a node, 1 = R_CheckBBox on the
+            // back side of a node, 2 = R_Subsector
+            var kind;
+            var node = 0;
+            var side = 0;
             if (bspnum < -1) {
-                // Possibly divide back space.
                 var e = -bspnum - 2;
-                var node = e >> 1;
-                var side = e & 1;
-                if (R_CheckBBox(node * 8 + (side ^ 1) * 4)) {
+                node = e >> 1;
+                side = e & 1;
+                kind = 1;
+            } else if ((bspnum & DoomData.NF_SUBSECTOR) != 0) {
+                kind = 2;
+            } else {
+                kind = 0;
+            }
+
+            if (kind == 0) {
+                // R_PointOnSide (viewx, viewy, bsp)
+                var ndx = nodes_dx[bspnum];
+                var ndy = nodes_dy[bspnum];
+                if (ndx == 0) {
+                    if (viewx <= nodes_x[bspnum]) {
+                        side = ndy > 0 ? 1 : 0;
+                    } else {
+                        side = ndy < 0 ? 1 : 0;
+                    }
+                } else if (ndy == 0) {
+                    if (viewy <= nodes_y[bspnum]) {
+                        side = ndx < 0 ? 1 : 0;
+                    } else {
+                        side = ndx > 0 ? 1 : 0;
+                    }
+                } else {
+                    var dx = viewx - nodes_x[bspnum];
+                    var dy = viewy - nodes_y[bspnum];
+                    if (((ndy ^ ndx ^ dx ^ dy) & 0x80000000) != 0) {
+                        side = ((ndy ^ dx) & 0x80000000) != 0 ? 1 : 0;
+                    } else {
+                        // FixedMul (node->dy>>FRACBITS, dx) etc., see RMain
+                        var a = ndy >> 16;
+                        var left = a * (dx >> 16) + ((a * (dx & 0xffff)) >> 16);
+                        a = ndx >> 16;
+                        var right = a * (dy >> 16) + ((a * (dy & 0xffff)) >> 16);
+                        side = right < left ? 0 : 1;
+                    }
+                }
+
+                // Recursively divide front space, then come back for the
+                // back space.
+                stack[sp] = -(bspnum * 2 + side) - 2;
+                stack[sp + 1] = children[bspnum * 2 + side];
+                sp += 2;
+                continue;
+            }
+
+            if (kind == 1) {
+                // Possibly divide back space: R_CheckBBox (bsp->bbox[side^1])
+                var b = node * 8 + (side ^ 1) * 4;
+                var boxx;
+                var boxy;
+                if (viewx <= bspcoord[b + MBBox.BOXLEFT]) {
+                    boxx = 0;
+                } else if (viewx < bspcoord[b + MBBox.BOXRIGHT]) {
+                    boxx = 1;
+                } else {
+                    boxx = 2;
+                }
+                if (viewy >= bspcoord[b + MBBox.BOXTOP]) {
+                    boxy = 0;
+                } else if (viewy > bspcoord[b + MBBox.BOXBOTTOM]) {
+                    boxy = 1;
+                } else {
+                    boxy = 2;
+                }
+                var boxpos = (boxy << 2) + boxx;
+                var visible = true;
+                if (boxpos != 5) {
+                    var c = boxpos * 4;
+                    px1 = bspcoord[b + cc[c]];
+                    py1 = bspcoord[b + cc[c + 1]];
+                    px2 = bspcoord[b + cc[c + 2]];
+                    py2 = bspcoord[b + cc[c + 3]];
+                    // R_PointToAngle for both points (see RMain), folded so
+                    // the two share one block
+                    for (var k = 0; k < 2; k++) {
+                        var x = (k == 0 ? px1 : px2) - viewx;
+                        var y = (k == 0 ? py1 : py2) - viewy;
+                        var t;
+                        if (x == 0 && y == 0) {
+                            t = 0;
+                        } else {
+                            var xneg = x < 0;
+                            var yneg = y < 0;
+                            if (xneg) {
+                                x = -x;
+                            }
+                            if (yneg) {
+                                y = -y;
+                            }
+                            var xbig = x > y;
+                            var num2 = xbig ? y : x;
+                            var den = xbig ? x : y;
+                            var q;
+                            if (num2 >= 0 && num2 < 0x10000000 && den >= 512) {
+                                q = (num2 << 3) / (den >> 8);
+                                if (q > Tables.SLOPERANGE) {
+                                    q = Tables.SLOPERANGE;
+                                }
+                            } else {
+                                q = Tables.SlopeDiv(num2, den);
+                            }
+                            t = tantoangle[q];
+                            if (!xneg) {
+                                if (!yneg) {
+                                    t = xbig ? t : Tables.ANG90 - 1 - t;
+                                } else {
+                                    t = xbig ? -t : Tables.ANG270 + t;
+                                }
+                            } else if (!yneg) {
+                                t = xbig ? Tables.ANG180 - 1 - t : Tables.ANG90 + t;
+                            } else {
+                                t = xbig ? Tables.ANG180 + t : Tables.ANG270 - 1 - t;
+                            }
+                        }
+                        if (k == 0) {
+                            angle1 = t;
+                        } else {
+                            angle2 = t;
+                        }
+                    }
+                    angle1 -= viewangle;
+                    angle2 -= viewangle;
+                    var span = angle1 - angle2;
+
+                    // Sitting on a line?  (span >= ANG180, unsigned)
+                    if ((span ^ MININT) < (Tables.ANG180 ^ MININT)) {
+                        var tspan = angle1 + clipangle;
+                        if ((tspan ^ MININT) > (clip2 ^ MININT)) {
+                            tspan -= clip2;
+                            // Totally off the left edge?
+                            if ((tspan ^ MININT) >= (span ^ MININT)) {
+                                visible = false;
+                            }
+                            angle1 = clipangle;
+                        }
+                        if (visible) {
+                            tspan = clipangle - angle2;
+                            if ((tspan ^ MININT) > (clip2 ^ MININT)) {
+                                tspan -= clip2;
+                                if ((tspan ^ MININT) >= (span ^ MININT)) {
+                                    visible = false;
+                                }
+                                angle2 = -clipangle;
+                            }
+                        }
+                        if (visible) {
+                            // Find the first clippost that touches the
+                            // source post.
+                            var sx1 = viewangletox[((angle1 + Tables.ANG90) >> Tables.ANGLETOFINESHIFT) & 0x1fff];
+                            var sx2 = viewangletox[((angle2 + Tables.ANG90) >> Tables.ANGLETOFINESHIFT) & 0x1fff];
+                            if (sx1 == sx2) {
+                                // Does not cross a pixel.
+                                visible = false;
+                            } else {
+                                sx2--;
+                                var start = 0;
+                                while (sl[start] < sx2) {
+                                    start++;
+                                }
+                                if (sx1 >= sf[start] && sx2 <= sl[start]) {
+                                    // The clippost contains the new span.
+                                    visible = false;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (visible) {
                     stack[sp] = children[node * 2 + (side ^ 1)];
                     sp++;
                 }
                 continue;
             }
 
-            // Found a subsector?
-            if ((bspnum & DoomData.NF_SUBSECTOR) != 0) {
-                if (bspnum == -1) {
-                    R_Subsector(0);
+            // R_Subsector: work out the subsector's visible seg ranges,
+            // then clip them in order. Doing the clipping here instead of
+            // inside R_SubsectorLines keeps that function's locals off the
+            // stack while R_StoreWallRange and R_RenderSegLoop run; Monkey
+            // C's stack only holds about 220 slots.
+            R_SubsectorLines(bspnum == -1 ? 0 : (bspnum & ~DoomData.NF_SUBSECTOR));
+            for (var i = 0; i < qcount; i++) {
+                curline = qline[i];
+                backsector = qback[i];
+                RSegs.rw_angle1 = qangle[i];
+                if (qsolid[i]) {
+                    R_ClipSolidWallSegment(qx1[i], qx2[i] - 1);
                 } else {
-                    R_Subsector(bspnum & ~DoomData.NF_SUBSECTOR);
+                    R_ClipPassWallSegment(qx1[i], qx2[i] - 1);
                 }
-                continue;
             }
-
-            // Decide which side the view point is on.
-            var side = RMain.R_PointOnSide(RMain.viewx, RMain.viewy, bspnum);
-
-            // Recursively divide front space, then come back for the
-            // back space.
-            stack[sp] = -(bspnum * 2 + side) - 2;
-            stack[sp + 1] = children[bspnum * 2 + side];
-            sp += 2;
         }
         bspsp = 0;
         return true;
