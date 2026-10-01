@@ -63,7 +63,8 @@ module DMain {
         if (s == 1) {
             if (RMain.R_InitStep()) {
                 System.println("R_Init: Init DOOM refresh daemon.");
-                PSetup.P_SetupLevel(1, 1);
+                Info.Info_Init();
+                GGame.G_InitNew(DoomStat.gameskill, 1, 1);
                 startupstep++;
             }
             return;
