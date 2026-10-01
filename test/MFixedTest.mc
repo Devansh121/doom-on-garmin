@@ -52,3 +52,29 @@ function testTables(logger as Test.Logger) as Boolean {
     Test.assertEqual(Tables.tantoangle[Tables.SLOPERANGE], Tables.ANG45);
     return true;
 }
+
+// The 32-bit FixedMul has to agree with the Long version everywhere,
+// including the wraparound cases.
+(:test)
+function testFixedMulMatchesLong(logger as Test.Logger) as Boolean {
+    var x = 12345;
+    for (var i = 0; i < 4000; i++) {
+        // xorshift for a spread of signs and magnitudes
+        x = x ^ (x << 13);
+        x = x ^ ((x >> 17) & 0x7fff);
+        x = x ^ (x << 5);
+        var a = x;
+        var b = (x * 1103515245 + 12345) >> (i % 17);
+        var want = ((a.toLong() * b) >> 16).toNumber();
+        Test.assertEqualMessage(MFixed.FixedMul(a, b), want, "FixedMul " + a + " " + b);
+    }
+    var edges = [0, 1, -1, 65535, 65536, -65536, 0x7fffffff, 0x80000000, 0x10000, 0x7fff0000];
+    for (var i = 0; i < edges.size(); i++) {
+        for (var j = 0; j < edges.size(); j++) {
+            var a = edges[i];
+            var b = edges[j];
+            Test.assertEqualMessage(MFixed.FixedMul(a, b), ((a.toLong() * b) >> 16).toNumber(), "edge " + a + " " + b);
+        }
+    }
+    return true;
+}

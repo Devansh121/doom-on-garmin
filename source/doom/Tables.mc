@@ -49,7 +49,14 @@ module Tables {
             return SLOPERANGE;
         }
 
-        // (num<<3)/(den>>8) in 32-bit unsigned arithmetic.
+        // (num<<3)/(den>>8) in 32-bit unsigned arithmetic. When num<<3
+        // can't overflow and den is positive (nearly always: they're
+        // distances under 4096 units from R_PointToAngle) plain Number
+        // math gives the same answer without the slow Long path.
+        if (num >= 0 && num < 0x10000000 && den > 0) {
+            var q = (num << 3) / (den >> 8);
+            return q <= SLOPERANGE ? q : SLOPERANGE;
+        }
         var ans = ((DoomType.UNSIGNED(num) << 3) & 0xffffffffl) / (DoomType.UNSIGNED(den) >> 8);
 
         return ans <= SLOPERANGE ? ans.toNumber() : SLOPERANGE;
