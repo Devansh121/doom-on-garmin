@@ -24,6 +24,10 @@ if [ ! -f "$GEN/maps.xml" ] || [ "$WAD" -nt "$GEN/maps.xml" ] || [ tools/wad2ciq
     python3 tools/wad2ciq.py "$WAD"
 fi
 [ -f generated/source/HudLumps.mc ] && [ generated/source/HudLumps.mc -nt "$WAD" ] && [ generated/source/HudLumps.mc -nt tools/hud2ciq.py ] || python3 tools/hud2ciq.py "$WAD"  # status bar graphics
+if [ ! -f "$GEN/sprites.xml" ] || [ "$WAD" -nt "$GEN/sprites.xml" ] || [ tools/sprites2ciq.py -nt "$GEN/sprites.xml" ]; then
+    [ -f "$WAD" ] || { echo "$WAD not found, set DOOM_WAD" >&2; exit 1; }
+    python3 tools/sprites2ciq.py "$WAD"
+fi
 
 mkdir -p bin
 if [ "${1:-}" = test ]; then
