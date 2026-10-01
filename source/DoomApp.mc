@@ -10,6 +10,6 @@ class DoomApp extends Application.AppBase {
 
     function getInitialView() as [WatchUi.Views] or [WatchUi.Views, WatchUi.InputDelegates] {
         var view = new DoomView();
-        return [view, new DoomDelegate(view)];
+        return [view, new DoomDelegate()];
     }
 }

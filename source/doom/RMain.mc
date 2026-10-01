@@ -596,4 +596,29 @@ module RMain {
         framecount++;
         validcount++;
     }
+
+    //
+    // R_RenderView
+    //
+    // Sets the frame up; R_RenderPlayerViewStep then does the drawing a
+    // slice at a time.
+    //
+    function R_RenderPlayerView(x as Number, y as Number, z as Number, angle as Number) as Void {
+        R_SetupFrame(x, y, z, angle);
+
+        // Clear buffers.
+        RBsp.R_ClearClipSegs();
+        RBsp.R_ClearDrawSegs();
+        RPlane.R_ClearPlanes();
+        RSegs.work = 0;
+
+        // The head node is the last node output.
+        RBsp.R_RenderBSPNode(PSetup.numnodes - 1);
+    }
+
+    // Returns true once the frame is complete. R_DrawPlanes is folded
+    // into r_segs, and R_DrawMasked comes with r_things.
+    function R_RenderPlayerViewStep(budget as Number) as Boolean {
+        return RBsp.R_RenderBSPNodeStep(RSegs.work + budget);
+    }
 }

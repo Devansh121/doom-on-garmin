@@ -199,6 +199,10 @@ module RBsp {
     function R_AddLine(line as Number) as Void {
         var clipangle = RMain.clipangle;
 
+        // Culled lines still cost something; count them so the frame
+        // budget sees it.
+        RSegs.work++;
+
         curline = line;
 
         // OPTIMIZE: quickly reject orthogonal back sides.
