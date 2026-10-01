@@ -261,6 +261,384 @@ module PMobj {
     }
 
     //
+    // P_ExplodeMissile
+    //
+    function P_ExplodeMissile(mo as Number) as Void {
+        mobjs_momx[mo] = 0;
+        mobjs_momy[mo] = 0;
+        mobjs_momz[mo] = 0;
+
+        P_SetMobjState(mo, Info.mobjinfo[mobjs_type[mo] * Info.MI_SIZE + Info.MI_DEATHSTATE]);
+
+        mobjs_tics[mo] -= MRandom.P_Random() & 3;
+
+        if (mobjs_tics[mo] < 1) {
+            mobjs_tics[mo] = 1;
+        }
+
+        mobjs_flags[mo] &= ~MF_MISSILE;
+
+        var deathsound = info(mo, Info.MI_DEATHSOUND);
+        if (deathsound != 0) {
+            SSound.S_StartSound(mo, deathsound);
+        }
+    }
+
+    //
+    // P_XYMovement
+    //
+    const STOPSPEED = 0x1000;
+    const FRICTION = 0xe800;
+
+    function P_XYMovement(mo as Number) as Void {
+        var ptryx;
+        var ptryy;
+        var player;
+        var xmove;
+        var ymove;
+
+        if (mobjs_momx[mo] == 0 && mobjs_momy[mo] == 0) {
+            if ((mobjs_flags[mo] & MF_SKULLFLY) != 0) {
+                // the skull slammed into something
+                mobjs_flags[mo] &= ~MF_SKULLFLY;
+                mobjs_momx[mo] = 0;
+                mobjs_momy[mo] = 0;
+                mobjs_momz[mo] = 0;
+
+                P_SetMobjState(mo, info(mo, Info.MI_SPAWNSTATE));
+            }
+            return;
+        }
+
+        player = mobjs_player[mo];
+
+        if (mobjs_momx[mo] > PLocal.MAXMOVE) {
+            mobjs_momx[mo] = PLocal.MAXMOVE;
+        } else if (mobjs_momx[mo] < -PLocal.MAXMOVE) {
+            mobjs_momx[mo] = -PLocal.MAXMOVE;
+        }
+
+        if (mobjs_momy[mo] > PLocal.MAXMOVE) {
+            mobjs_momy[mo] = PLocal.MAXMOVE;
+        } else if (mobjs_momy[mo] < -PLocal.MAXMOVE) {
+            mobjs_momy[mo] = -PLocal.MAXMOVE;
+        }
+
+        xmove = mobjs_momx[mo];
+        ymove = mobjs_momy[mo];
+
+        do {
+            if (xmove > PLocal.MAXMOVE / 2 || ymove > PLocal.MAXMOVE / 2) {
+                ptryx = mobjs_x[mo] + xmove / 2;
+                ptryy = mobjs_y[mo] + ymove / 2;
+                xmove >>= 1;
+                ymove >>= 1;
+            } else {
+                ptryx = mobjs_x[mo] + xmove;
+                ptryy = mobjs_y[mo] + ymove;
+                xmove = 0;
+                ymove = 0;
+            }
+
+            if (!PMap.P_TryMove(mo, ptryx, ptryy)) {
+                // blocked move
+                if (mobjs_player[mo] != -1) {
+                    // try to slide along it
+                    PMap.P_SlideMove(mo);
+                } else if ((mobjs_flags[mo] & MF_MISSILE) != 0) {
+                    // explode a missile
+                    var ceilingline = PMap.ceilingline;
+                    if (ceilingline != -1
+                        && PSetup.lines_backsector[ceilingline] != -1
+                        && PSetup.sectors_ceilingpic[PSetup.lines_backsector[ceilingline]] == RData.skyflatnum) {
+                        // Hack to prevent missiles exploding
+                        // against the sky.
+                        // Does not handle sky floors.
+                        P_RemoveMobj(mo);
+                        return;
+                    }
+                    P_ExplodeMissile(mo);
+                } else {
+                    mobjs_momx[mo] = 0;
+                    mobjs_momy[mo] = 0;
+                }
+            }
+        } while (xmove != 0 || ymove != 0);
+
+        // slow down
+        if (player != -1 && (DPlayer.players_cheats[player] & DPlayer.CF_NOMOMENTUM) != 0) {
+            // debug option for no sliding at all
+            mobjs_momx[mo] = 0;
+            mobjs_momy[mo] = 0;
+            return;
+        }
+
+        if ((mobjs_flags[mo] & (MF_MISSILE | MF_SKULLFLY)) != 0) {
+            return;     // no friction for missiles ever
+        }
+
+        if (mobjs_z[mo] > mobjs_floorz[mo]) {
+            return;     // no friction when airborne
+        }
+
+        if ((mobjs_flags[mo] & MF_CORPSE) != 0) {
+            // do not stop sliding
+            //  if halfway off a step with some momentum
+            if (mobjs_momx[mo] > MFixed.FRACUNIT / 4
+                || mobjs_momx[mo] < -MFixed.FRACUNIT / 4
+                || mobjs_momy[mo] > MFixed.FRACUNIT / 4
+                || mobjs_momy[mo] < -MFixed.FRACUNIT / 4) {
+                if (mobjs_floorz[mo] != PSetup.sectors_floorheight[PSetup.subsectors_sector[mobjs_subsector[mo]]]) {
+                    return;
+                }
+            }
+        }
+
+        if (mobjs_momx[mo] > -STOPSPEED
+            && mobjs_momx[mo] < STOPSPEED
+            && mobjs_momy[mo] > -STOPSPEED
+            && mobjs_momy[mo] < STOPSPEED
+            && (player == -1
+                || (DPlayer.players_cmd_forwardmove[player] == 0
+                    && DPlayer.players_cmd_sidemove[player] == 0))) {
+            // if in a walking frame, stop moving
+            if (player != -1
+                && DoomType.ULT(mobjs_state[DPlayer.players_mo[player]] - Info.S_PLAY_RUN1, 4)) {
+                P_SetMobjState(DPlayer.players_mo[player], Info.S_PLAY);
+            }
+
+            mobjs_momx[mo] = 0;
+            mobjs_momy[mo] = 0;
+        } else {
+            mobjs_momx[mo] = MFixed.FixedMul(mobjs_momx[mo], FRICTION);
+            mobjs_momy[mo] = MFixed.FixedMul(mobjs_momy[mo], FRICTION);
+        }
+    }
+
+    //
+    // P_ZMovement
+    //
+    function P_ZMovement(mo as Number) as Void {
+        var dist;
+        var delta;
+        var player = mobjs_player[mo];
+
+        // check for smooth step up
+        if (player != -1 && mobjs_z[mo] < mobjs_floorz[mo]) {
+            DPlayer.players_viewheight[player] -= mobjs_floorz[mo] - mobjs_z[mo];
+
+            DPlayer.players_deltaviewheight[player]
+                = (PLocal.VIEWHEIGHT - DPlayer.players_viewheight[player]) >> 3;
+        }
+
+        // adjust height
+        mobjs_z[mo] += mobjs_momz[mo];
+
+        var target = mobjs_target[mo];
+        if ((mobjs_flags[mo] & MF_FLOAT) != 0
+            && target != -1) {
+            // float down towards target if too close
+            if ((mobjs_flags[mo] & MF_SKULLFLY) == 0
+                && (mobjs_flags[mo] & MF_INFLOAT) == 0) {
+                dist = PMapUtl.P_AproxDistance(mobjs_x[mo] - mobjs_x[target],
+                                               mobjs_y[mo] - mobjs_y[target]);
+
+                delta = (mobjs_z[target] + (mobjs_height[mo] >> 1)) - mobjs_z[mo];
+
+                if (delta < 0 && dist < -(delta * 3)) {
+                    mobjs_z[mo] -= PLocal.FLOATSPEED;
+                } else if (delta > 0 && dist < (delta * 3)) {
+                    mobjs_z[mo] += PLocal.FLOATSPEED;
+                }
+            }
+        }
+
+        // clip movement
+        if (mobjs_z[mo] <= mobjs_floorz[mo]) {
+            // hit the floor
+
+            // Note (id):
+            //  somebody left this after the setting momz to 0,
+            //  kinda useless there.
+            if ((mobjs_flags[mo] & MF_SKULLFLY) != 0) {
+                // the skull slammed into something
+                mobjs_momz[mo] = -mobjs_momz[mo];
+            }
+
+            if (mobjs_momz[mo] < 0) {
+                if (player != -1
+                    && mobjs_momz[mo] < -PLocal.GRAVITY * 8) {
+                    // Squat down.
+                    // Decrease viewheight for a moment
+                    // after hitting the ground (hard),
+                    // and utter appropriate sound.
+                    DPlayer.players_deltaviewheight[player] = mobjs_momz[mo] >> 3;
+                    SSound.S_StartSound(mo, SSound.sfx_oof);
+                }
+                mobjs_momz[mo] = 0;
+            }
+            mobjs_z[mo] = mobjs_floorz[mo];
+
+            if ((mobjs_flags[mo] & MF_MISSILE) != 0
+                && (mobjs_flags[mo] & MF_NOCLIP) == 0) {
+                P_ExplodeMissile(mo);
+                return;
+            }
+        } else if ((mobjs_flags[mo] & MF_NOGRAVITY) == 0) {
+            if (mobjs_momz[mo] == 0) {
+                mobjs_momz[mo] = -PLocal.GRAVITY * 2;
+            } else {
+                mobjs_momz[mo] -= PLocal.GRAVITY;
+            }
+        }
+
+        if (mobjs_z[mo] + mobjs_height[mo] > mobjs_ceilingz[mo]) {
+            // hit the ceiling
+            if (mobjs_momz[mo] > 0) {
+                mobjs_momz[mo] = 0;
+            }
+            // (a bare { } block in the C, Monkey C has none)
+            mobjs_z[mo] = mobjs_ceilingz[mo] - mobjs_height[mo];
+
+            if ((mobjs_flags[mo] & MF_SKULLFLY) != 0) {
+                // the skull slammed into something
+                mobjs_momz[mo] = -mobjs_momz[mo];
+            }
+
+            if ((mobjs_flags[mo] & MF_MISSILE) != 0
+                && (mobjs_flags[mo] & MF_NOCLIP) == 0) {
+                P_ExplodeMissile(mo);
+                return;
+            }
+        }
+    }
+
+    //
+    // P_NightmareRespawn
+    //
+    function P_NightmareRespawn(mobj as Number) as Void {
+        var x;
+        var y;
+        var z;
+        var ss;
+        var mo;
+        var sp = mobj * 5;
+
+        x = mobjs_spawnpoint[sp] << MFixed.FRACBITS;
+        y = mobjs_spawnpoint[sp + 1] << MFixed.FRACBITS;
+
+        // somthing is occupying it's position?
+        if (!PMap.P_CheckPosition(mobj, x, y)) {
+            return;     // no respwan
+        }
+
+        // spawn a teleport fog at old spot
+        // because of removal of the body?
+        mo = P_SpawnMobj(mobjs_x[mobj],
+                         mobjs_y[mobj],
+                         PSetup.sectors_floorheight[PSetup.subsectors_sector[mobjs_subsector[mobj]]], Info.MT_TFOG);
+        // initiate teleport sound
+        SSound.S_StartSound(mo, SSound.sfx_telept);
+
+        // spawn a teleport fog at the new spot
+        ss = RMain.R_PointInSubsector(x, y);
+
+        mo = P_SpawnMobj(x, y, PSetup.sectors_floorheight[PSetup.subsectors_sector[ss]], Info.MT_TFOG);
+
+        SSound.S_StartSound(mo, SSound.sfx_telept);
+
+        // spawn the new monster
+        // (mthing is &mobj->spawnpoint, read from mobjs_spawnpoint)
+
+        // spawn it
+        if ((info(mobj, Info.MI_FLAGS) & MF_SPAWNCEILING) != 0) {
+            z = ONCEILINGZ;
+        } else {
+            z = ONFLOORZ;
+        }
+
+        // inherit attributes from deceased one
+        mo = P_SpawnMobj(x, y, z, mobjs_type[mobj]);
+        for (var i = 0; i < 5; i++) {
+            mobjs_spawnpoint[mo * 5 + i] = mobjs_spawnpoint[sp + i];
+        }
+        mobjs_angle[mo] = Tables.ANG45 * (mobjs_spawnpoint[sp + 2] / 45);
+
+        if ((mobjs_spawnpoint[sp + 4] & DoomDef.MTF_AMBUSH) != 0) {
+            mobjs_flags[mo] |= MF_AMBUSH;
+        }
+
+        mobjs_reactiontime[mo] = 18;
+
+        // remove the old monster,
+        P_RemoveMobj(mobj);
+    }
+
+    //
+    // P_MobjThinker
+    //
+    function P_MobjThinker(mobj as Number) as Void {
+        // momentum movement
+        if (mobjs_momx[mobj] != 0
+            || mobjs_momy[mobj] != 0
+            || (mobjs_flags[mobj] & MF_SKULLFLY) != 0) {
+            P_XYMovement(mobj);
+
+            // FIXME: decent NOP/NULL/Nil function pointer please.
+            if (PTick.thinkers_function[mobj] == PTick.TF_REMOVED) {
+                return;     // mobj was removed
+            }
+        }
+        if ((mobjs_z[mobj] != mobjs_floorz[mobj])
+            || mobjs_momz[mobj] != 0) {
+            P_ZMovement(mobj);
+
+            // FIXME: decent NOP/NULL/Nil function pointer please.
+            if (PTick.thinkers_function[mobj] == PTick.TF_REMOVED) {
+                return;     // mobj was removed
+            }
+        }
+
+        // cycle through states,
+        // calling action functions at transitions
+        if (mobjs_tics[mobj] != -1) {
+            mobjs_tics[mobj]--;
+
+            // you can cycle through multiple states in a tic
+            if (mobjs_tics[mobj] == 0) {
+                if (!P_SetMobjState(mobj, Info.states[mobjs_state[mobj] * Info.ST_SIZE + Info.ST_NEXTSTATE])) {
+                    return;     // freed itself
+                }
+            }
+        } else {
+            // check for nightmare respawn
+            if ((mobjs_flags[mobj] & MF_COUNTKILL) == 0) {
+                return;
+            }
+
+            if (!GGame.respawnmonsters) {
+                return;
+            }
+
+            mobjs_movecount[mobj]++;
+
+            if (mobjs_movecount[mobj] < 12 * 35) {
+                return;
+            }
+
+            if ((PTick.leveltime & 31) != 0) {
+                return;
+            }
+
+            if (MRandom.P_Random() > 4) {
+                return;
+            }
+
+            P_NightmareRespawn(mobj);
+        }
+    }
+
+    //
     // P_SpawnMobj
     //
     function P_SpawnMobj(x as Number, y as Number, z as Number, type as Number) as Number {
@@ -367,49 +745,417 @@ module PMobj {
     }
 
     //
-    // The rest of p_mobj.c (P_MobjThinker and movement, respawning,
-    // P_SpawnPlayer, the missile/puff/blood spawners) isn't ported yet;
-    // these keep the callers compiling until it is.
+    // P_RespawnSpecials
     //
-    function P_MobjThinker(mobj as Number) as Void {
-    }
-
     function P_RespawnSpecials() as Void {
+        var x;
+        var y;
+        var z;
+
+        var ss;
+        var mo;
+        var mthing;
+
+        var i;
+
+        // only respawn items in deathmatch
+        // (deathmatch is a Boolean on the watch and altdeath, 2, is never
+        // set, so this always returns; the rest is kept as in the C)
+        if (!altdeath) {
+            return;
+        }
+
+        // nothing left to respawn?
+        if (iquehead == iquetail) {
+            return;
+        }
+
+        // wait at least 30 seconds
+        if (PTick.leveltime - itemrespawntime[iquetail] < 30 * 35) {
+            return;
+        }
+
+        mthing = iquetail * 5;
+
+        x = itemrespawnque[mthing] << MFixed.FRACBITS;
+        y = itemrespawnque[mthing + 1] << MFixed.FRACBITS;
+
+        // spawn a teleport fog at the new spot
+        ss = RMain.R_PointInSubsector(x, y);
+        mo = P_SpawnMobj(x, y, PSetup.sectors_floorheight[PSetup.subsectors_sector[ss]], Info.MT_IFOG);
+        SSound.S_StartSound(mo, SSound.sfx_itmbk);
+
+        // find which type to spawn
+        var mi = Info.mobjinfo;
+        for (i = 0; i < Info.NUMMOBJTYPES; i++) {
+            if (itemrespawnque[mthing + 3] == mi[i * Info.MI_SIZE + Info.MI_DOOMEDNUM]) {
+                break;
+            }
+        }
+
+        // spawn it
+        if ((mi[i * Info.MI_SIZE + Info.MI_FLAGS] & MF_SPAWNCEILING) != 0) {
+            z = ONCEILINGZ;
+        } else {
+            z = ONFLOORZ;
+        }
+
+        mo = P_SpawnMobj(x, y, z, i);
+        for (var k = 0; k < 5; k++) {
+            mobjs_spawnpoint[mo * 5 + k] = itemrespawnque[mthing + k];
+        }
+        mobjs_angle[mo] = Tables.ANG45 * (itemrespawnque[mthing + 2] / 45);
+
+        // pull it from the que
+        iquetail = (iquetail + 1) & (ITEMQUESIZE - 1);
     }
 
+    // deathmatch == 2 (altdeath) in the C code.
+    var altdeath as Boolean = false;
+
+    //
+    // P_SpawnPlayer
+    // Called when a player is spawned on the level.
+    // Most of the player structure stays unchanged
+    //  between levels.
+    //
     function P_SpawnPlayer(mthing as Array<Number>) as Void {
+        var p;
+        var x;
+        var y;
+        var z;
+
+        var mobj;
+
+        var i;
+
+        // not playing?
+        if (!DPlayer.playeringame[mthing[3] - 1]) {
+            return;
+        }
+
+        p = mthing[3] - 1;
+
+        if (DPlayer.players_playerstate[p] == DPlayer.PST_REBORN) {
+            GGame.G_PlayerReborn(p);
+        }
+
+        x = mthing[0] << MFixed.FRACBITS;
+        y = mthing[1] << MFixed.FRACBITS;
+        z = ONFLOORZ;
+        mobj = P_SpawnMobj(x, y, z, Info.MT_PLAYER);
+
+        // set color translations for player sprites
+        if (mthing[3] > 1) {
+            mobjs_flags[mobj] |= (mthing[3] - 1) << MF_TRANSSHIFT;
+        }
+
+        mobjs_angle[mobj] = Tables.ANG45 * (mthing[2] / 45);
+        mobjs_player[mobj] = p;
+        mobjs_health[mobj] = DPlayer.players_health[p];
+
+        DPlayer.players_mo[p] = mobj;
+        DPlayer.players_playerstate[p] = DPlayer.PST_LIVE;
+        DPlayer.players_refire[p] = 0;
+        DPlayer.players_message[p] = null;
+        DPlayer.players_damagecount[p] = 0;
+        DPlayer.players_bonuscount[p] = 0;
+        DPlayer.players_extralight[p] = 0;
+        DPlayer.players_fixedcolormap[p] = 0;
+        DPlayer.players_viewheight[p] = PLocal.VIEWHEIGHT;
+
+        // setup gun psprite
+        PPspr.P_SetupPsprites(p);
+
+        // give all cards in death match mode
+        if (DoomStat.deathmatch) {
+            for (i = 0; i < DoomDef.NUMCARDS; i++) {
+                DPlayer.players_cards[p * DoomDef.NUMCARDS + i] = 1;
+            }
+        }
+
+        if (p == DPlayer.consoleplayer) {
+            // wake up the status bar
+            // wake up the heads up text
+            // (ST_Start and HU_Start: there's no status bar or HUD yet)
+        }
     }
 
-    function P_SpawnPuff(x as Number, y as Number, z as Number) as Void {
-    }
-
-    function P_SpawnBlood(x as Number, y as Number, z as Number, damage as Number) as Void {
-    }
-
-    function P_SpawnMissile(source as Number, dest as Number, type as Number) as Number {
-        return -1;
-    }
-
-    function P_SpawnPlayerMissile(source as Number, type as Number) as Void {
-    }
-
-    function P_ExplodeMissile(mo as Number) as Void {
-    }
-
-    function P_CheckMissileSpawn(th as Number) as Void {
-    }
-
+    //
     // P_SpawnMapThing
     // The fields of the mapthing should
     // already be in host byte order.
+    //
+    // mthing is a mapthing_t as [x, y, angle, type, options].
+    //
     function P_SpawnMapThing(mthing as Array<Number>) as Void {
+        var i;
+        var bit;
+        var mobj;
+        var x;
+        var y;
+        var z;
         var type = mthing[3];
+        var options = mthing[4];
+
+        // count deathmatch start positions
+        // (single player only: deathmatch starts aren't kept)
+        if (type == 11) {
+            return;
+        }
 
         // check for players specially
         if (type <= 4) {
             // save spots for respawning in network games
             DoomStat.playerstarts[type - 1] = mthing;
+            if (!DoomStat.deathmatch) {
+                P_SpawnPlayer(mthing);
+            }
+
             return;
         }
+
+        // check for apropriate skill level
+        if (!DoomStat.netgame && (options & 16) != 0) {
+            return;
+        }
+
+        if (DoomStat.gameskill == DoomDef.sk_baby) {
+            bit = 1;
+        } else if (DoomStat.gameskill == DoomDef.sk_nightmare) {
+            bit = 4;
+        } else {
+            bit = 1 << (DoomStat.gameskill - 1);
+        }
+
+        if ((options & bit) == 0) {
+            return;
+        }
+
+        // find which type to spawn
+        var mi = Info.mobjinfo;
+        for (i = 0; i < Info.NUMMOBJTYPES; i++) {
+            if (type == mi[i * Info.MI_SIZE + Info.MI_DOOMEDNUM]) {
+                break;
+            }
+        }
+
+        if (i == Info.NUMMOBJTYPES) {
+            ISystem.I_Error("P_SpawnMapThing: Unknown type " + type + " at (" + mthing[0] + ", " + mthing[1] + ")");
+        }
+
+        var flags = mi[i * Info.MI_SIZE + Info.MI_FLAGS];
+
+        // don't spawn keycards and players in deathmatch
+        if (DoomStat.deathmatch && (flags & MF_NOTDMATCH) != 0) {
+            return;
+        }
+
+        // don't spawn any monsters if -nomonsters
+        if (DoomStat.nomonsters
+            && (i == Info.MT_SKULL
+                || (flags & MF_COUNTKILL) != 0)) {
+            return;
+        }
+
+        // spawn it
+        x = mthing[0] << MFixed.FRACBITS;
+        y = mthing[1] << MFixed.FRACBITS;
+
+        if ((flags & MF_SPAWNCEILING) != 0) {
+            z = ONCEILINGZ;
+        } else {
+            z = ONFLOORZ;
+        }
+
+        mobj = P_SpawnMobj(x, y, z, i);
+        for (var k = 0; k < 5; k++) {
+            mobjs_spawnpoint[mobj * 5 + k] = mthing[k];
+        }
+
+        if (mobjs_tics[mobj] > 0) {
+            mobjs_tics[mobj] = 1 + (MRandom.P_Random() % mobjs_tics[mobj]);
+        }
+        if ((mobjs_flags[mobj] & MF_COUNTKILL) != 0) {
+            DoomStat.totalkills++;
+        }
+        if ((mobjs_flags[mobj] & MF_COUNTITEM) != 0) {
+            DoomStat.totalitems++;
+        }
+
+        mobjs_angle[mobj] = Tables.ANG45 * (mthing[2] / 45);
+        if ((options & DoomDef.MTF_AMBUSH) != 0) {
+            mobjs_flags[mobj] |= MF_AMBUSH;
+        }
+    }
+
+    //
+    // GAME SPAWN FUNCTIONS
+    //
+
+    //
+    // P_SpawnPuff
+    //
+    function P_SpawnPuff(x as Number, y as Number, z as Number) as Void {
+        var th;
+
+        z += ((MRandom.P_Random() - MRandom.P_Random()) << 10);
+
+        th = P_SpawnMobj(x, y, z, Info.MT_PUFF);
+        mobjs_momz[th] = MFixed.FRACUNIT;
+        mobjs_tics[th] -= MRandom.P_Random() & 3;
+
+        if (mobjs_tics[th] < 1) {
+            mobjs_tics[th] = 1;
+        }
+
+        // don't make punches spark on the wall
+        if (PMap.attackrange == PLocal.MELEERANGE) {
+            P_SetMobjState(th, Info.S_PUFF3);
+        }
+    }
+
+    //
+    // P_SpawnBlood
+    //
+    function P_SpawnBlood(x as Number, y as Number, z as Number, damage as Number) as Void {
+        var th;
+
+        z += ((MRandom.P_Random() - MRandom.P_Random()) << 10);
+        th = P_SpawnMobj(x, y, z, Info.MT_BLOOD);
+        mobjs_momz[th] = MFixed.FRACUNIT * 2;
+        mobjs_tics[th] -= MRandom.P_Random() & 3;
+
+        if (mobjs_tics[th] < 1) {
+            mobjs_tics[th] = 1;
+        }
+
+        if (damage <= 12 && damage >= 9) {
+            P_SetMobjState(th, Info.S_BLOOD2);
+        } else if (damage < 9) {
+            P_SetMobjState(th, Info.S_BLOOD3);
+        }
+    }
+
+    //
+    // P_CheckMissileSpawn
+    // Moves the missile forward a bit
+    //  and possibly explodes it right there.
+    //
+    function P_CheckMissileSpawn(th as Number) as Void {
+        mobjs_tics[th] -= MRandom.P_Random() & 3;
+        if (mobjs_tics[th] < 1) {
+            mobjs_tics[th] = 1;
+        }
+
+        // move a little forward so an angle can
+        // be computed if it immediately explodes
+        mobjs_x[th] += (mobjs_momx[th] >> 1);
+        mobjs_y[th] += (mobjs_momy[th] >> 1);
+        mobjs_z[th] += (mobjs_momz[th] >> 1);
+
+        if (!PMap.P_TryMove(th, mobjs_x[th], mobjs_y[th])) {
+            P_ExplodeMissile(th);
+        }
+    }
+
+    //
+    // P_SpawnMissile
+    //
+    function P_SpawnMissile(source as Number, dest as Number, type as Number) as Number {
+        var th;
+        var an;
+        var dist;
+
+        th = P_SpawnMobj(mobjs_x[source],
+                         mobjs_y[source],
+                         mobjs_z[source] + 4 * 8 * MFixed.FRACUNIT, type);
+
+        var seesound = info(th, Info.MI_SEESOUND);
+        if (seesound != 0) {
+            SSound.S_StartSound(th, seesound);
+        }
+
+        mobjs_target[th] = source;  // where it came from
+        an = RMain.R_PointToAngle2(mobjs_x[source], mobjs_y[source], mobjs_x[dest], mobjs_y[dest]);
+
+        // fuzzy player
+        if ((mobjs_flags[dest] & MF_SHADOW) != 0) {
+            an += (MRandom.P_Random() - MRandom.P_Random()) << 20;
+        }
+
+        mobjs_angle[th] = an;
+        // angle_t is unsigned
+        an = DoomType.USHR(an, Tables.ANGLETOFINESHIFT);
+        var speed = info(th, Info.MI_SPEED);
+        mobjs_momx[th] = MFixed.FixedMul(speed, Tables.finesine[Tables.FINECOSINE + an]);
+        mobjs_momy[th] = MFixed.FixedMul(speed, Tables.finesine[an]);
+
+        dist = PMapUtl.P_AproxDistance(mobjs_x[dest] - mobjs_x[source], mobjs_y[dest] - mobjs_y[source]);
+        dist = dist / speed;
+
+        if (dist < 1) {
+            dist = 1;
+        }
+
+        mobjs_momz[th] = (mobjs_z[dest] - mobjs_z[source]) / dist;
+        P_CheckMissileSpawn(th);
+
+        return th;
+    }
+
+    //
+    // P_SpawnPlayerMissile
+    // Tries to aim at a nearby monster
+    //
+    function P_SpawnPlayerMissile(source as Number, type as Number) as Void {
+        var th;
+        var an;
+
+        var x;
+        var y;
+        var z;
+        var slope;
+
+        // see which target is to be aimed at
+        an = mobjs_angle[source];
+        slope = PMap.P_AimLineAttack(source, an, 16 * 64 * MFixed.FRACUNIT);
+
+        if (PMap.linetarget == -1) {
+            an += 1 << 26;
+            slope = PMap.P_AimLineAttack(source, an, 16 * 64 * MFixed.FRACUNIT);
+
+            if (PMap.linetarget == -1) {
+                an -= 2 << 26;
+                slope = PMap.P_AimLineAttack(source, an, 16 * 64 * MFixed.FRACUNIT);
+            }
+
+            if (PMap.linetarget == -1) {
+                an = mobjs_angle[source];
+                slope = 0;
+            }
+        }
+
+        x = mobjs_x[source];
+        y = mobjs_y[source];
+        z = mobjs_z[source] + 4 * 8 * MFixed.FRACUNIT;
+
+        th = P_SpawnMobj(x, y, z, type);
+
+        var seesound = info(th, Info.MI_SEESOUND);
+        if (seesound != 0) {
+            SSound.S_StartSound(th, seesound);
+        }
+
+        mobjs_target[th] = source;
+        mobjs_angle[th] = an;
+        var speed = info(th, Info.MI_SPEED);
+        // angle_t is unsigned
+        var fine = DoomType.USHR(an, Tables.ANGLETOFINESHIFT);
+        mobjs_momx[th] = MFixed.FixedMul(speed, Tables.finesine[Tables.FINECOSINE + fine]);
+        mobjs_momy[th] = MFixed.FixedMul(speed, Tables.finesine[fine]);
+        mobjs_momz[th] = MFixed.FixedMul(speed, slope);
+
+        P_CheckMissileSpawn(th);
     }
 }

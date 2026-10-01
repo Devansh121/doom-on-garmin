@@ -10,6 +10,14 @@ import Toybox.Lang;
 
 module PMap {
 
+    // p_map.c globals used by p_mobj.c. Stubs until p_map.c is ported.
+    // keep track of the line that lowers the ceiling,
+    // so missiles don't explode against sky hack walls
+    var ceilingline as Number = -1;
+    // who got hit (or NULL)
+    var linetarget as Number = -1;
+    var attackrange as Number = 0;
+
     function P_CheckPosition(thing as Number, x as Number, y as Number) as Boolean {
         return false;
     }

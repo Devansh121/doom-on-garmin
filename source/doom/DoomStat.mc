@@ -27,6 +27,12 @@ module DoomStat {
     var fastparm as Boolean = false;
     var nomonsters as Boolean = false;
 
+    // Intermission stats.
+    // Parameters for world map / intermission.
+    var totalkills as Number = 0;
+    var totalitems as Number = 0;
+    var totalsecret as Number = 0;
+
     // Player spawn spots. Each one is a mapthing_t as
     // [x, y, angle, type, options], or null if the map has none.
     var playerstarts as Array<Array<Number>?> = new [MAXPLAYERS] as Array<Array<Number>?>;

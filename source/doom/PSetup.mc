@@ -137,6 +137,9 @@ module PSetup {
     // the watchdog limit.
     const CHUNK = 128;
     const GROUPCHUNK = 4;
+    // P_SpawnMapThing searches mobjinfo (up to NUMMOBJTYPES) and
+    // P_SpawnMobj walks the BSP for every thing, so fewer per slice.
+    const THINGCHUNK = 8;
 
     function W_LumpData(ml as Number) as Array<Number> {
         return WatchUi.loadResource(lumps[ml - 1] as ResourceId) as Array<Number>;
@@ -498,7 +501,13 @@ module PSetup {
             ISystem.I_Error("W_GetNumForName: " + lumpname + " not found!");
         }
 
+        DoomStat.totalkills = 0;
+        DoomStat.totalitems = 0;
+        DoomStat.totalsecret = 0;
         for (var i = 0; i < DoomStat.MAXPLAYERS; i++) {
+            DPlayer.players_killcount[i] = 0;
+            DPlayer.players_secretcount[i] = 0;
+            DPlayer.players_itemcount[i] = 0;
             DoomStat.playerstarts[i] = null;
         }
 
@@ -641,10 +650,13 @@ module PSetup {
                     data = W_LumpData(DoomData.ML_THINGS);
                     numthings = data.size() / 5;
                 }
-                return slice(numthings, CHUNK, new Lang.Method(PSetup, :P_LoadThings));
+                return slice(numthings, THINGCHUNK, new Lang.Method(PSetup, :P_LoadThings));
 
             default:
                 data = [] as Array<Number>;
+                // clear special respawning que
+                PMobj.iquehead = 0;
+                PMobj.iquetail = 0;
                 return true;
         }
     }

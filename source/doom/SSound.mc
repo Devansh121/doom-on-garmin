@@ -9,6 +9,11 @@ import Toybox.Lang;
 
 module SSound {
 
+    // sfxenum_t values from sounds.h, used by p_mobj.c.
+    const sfx_oof = 34;
+    const sfx_telept = 35;
+    const sfx_itmbk = 90;
+
     function S_Start() as Void {
     }
 

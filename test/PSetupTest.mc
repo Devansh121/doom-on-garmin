@@ -5,6 +5,10 @@ import Toybox.Lang;
 import Toybox.Test;
 
 function loadE1M1() as Void {
+    // P_LoadThings spawns mobjs, which needs mobjinfo and states
+    if (Info.mobjinfo.size() == 0) {
+        Info.Info_Init();
+    }
     PSetup.P_SetupLevel(1, 1);
     var steps = 0;
     while (!PSetup.P_SetupLevelStep()) {
