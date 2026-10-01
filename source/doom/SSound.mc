@@ -64,6 +64,27 @@ module SSound {
     const sfx_bosdth = 98;
     const sfx_manatk = 99;
     // end of p_enemy sounds
+    //
+    // sounds.h sfx numbers used by the p_spec family (p_doors, p_plats,
+    // p_floor, p_ceilng, p_switch; sfx_oof and sfx_telept are above).
+    //
+    const sfx_pstart = 18;
+    const sfx_pstop = 19;
+    const sfx_doropn = 20;
+    const sfx_dorcls = 21;
+    const sfx_stnmov = 22;
+    const sfx_swtchn = 23;
+    const sfx_swtchx = 24;
+    const sfx_bdopn = 88;
+    const sfx_bdcls = 89;
+
+    // Sectors play sounds from their soundorg (a degenmobj_t the C code
+    // casts to mobj_t*). There's no mobj number for that, so a sector's
+    // origin is passed as -2 - sector; -1 stays NULL.
+    function S_SectorOrigin(sector as Number) as Number {
+        return -2 - sector;
+    }
+    // end of the p_spec block
 
     function S_Start() as Void {
     }
