@@ -15,9 +15,11 @@ import Toybox.Lang;
 
 module RDraw {
 
-    // Size of the view bitmap on the watch, in screen pixels. 4:3.
+    // Size of the view bitmap on the watch, in screen pixels. A full
+    // 320x200 view is 400x300 (4:3), so rows are 1.5 pixels and a
+    // smaller viewheight (with the status bar) gets a shorter bitmap.
     const VIEW_W = 400;
-    const VIEW_H = 300;
+    var VIEW_H as Number = 300;
 
     var viewbitmap as Graphics.BufferedBitmap? = null;
     var dc as Graphics.Dc? = null;
@@ -41,12 +43,15 @@ module RDraw {
         for (var x = 0; x <= width; x++) {
             colx[x] = x * VIEW_W / width;
         }
+        VIEW_H = height * 3 / 2;
         rowy = new [height + 1] as Array<Number>;
         for (var y = 0; y <= height; y++) {
             rowy[y] = y * VIEW_H / height;
         }
 
-        if (viewbitmap == null) {
+        if (viewbitmap == null || (viewbitmap as Graphics.BufferedBitmap).getHeight() != VIEW_H) {
+            viewbitmap = null;
+            dc = null;
             var ref = Graphics.createBufferedBitmap({:width => VIEW_W, :height => VIEW_H});
             viewbitmap = ref.get() as Graphics.BufferedBitmap;
             dc = (viewbitmap as Graphics.BufferedBitmap).getDc();

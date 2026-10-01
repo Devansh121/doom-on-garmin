@@ -6,6 +6,9 @@ import Toybox.Test;
 
 function initRender() as Void {
     Tables.Tables_Init();
+    // Full screen view (setblocks 11, viewheight 200) like the C
+    // references, not the game's view above the status bar.
+    RMain.screenblocks = 11;
     RMain.initstep = 0;
     while (!RMain.R_InitStep()) {
     }

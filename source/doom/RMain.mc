@@ -108,6 +108,11 @@ module RMain {
     // -1 when not using a fixed colormap (NULL in C)
     var fixedcolormap as Number = -1;
 
+    // m_menu.c's screenblocks, the view size R_Init starts with. 10 is
+    // a full width view above the status bar (the C default is 9);
+    // tests set 11, full screen, which the expected values assume.
+    var screenblocks as Number = 10;
+
     var setsizeneeded as Boolean = false;
     var setblocks as Number = 0;
     var setdetail as Number = 0;
@@ -527,7 +532,7 @@ module RMain {
             RData.R_InitData();
 
             // viewwidth / viewheight / detailLevel are set by the defaults
-            R_SetViewSize(11, 1);
+            R_SetViewSize(screenblocks, 1);
             R_ExecuteSetViewSize();
             return false;
         }
