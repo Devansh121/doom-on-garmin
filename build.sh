@@ -4,6 +4,7 @@
 #   ./build.sh            convert WAD data if needed, then compile bin/DoomIQ.prg
 #   ./build.sh run        ... and run it in the simulator
 #   ./build.sh install    ... and copy it to a watch connected over USB (MTP)
+#   ./build.sh test       build with unit tests and run them in the simulator
 #
 # Env: CIQ_SDK (SDK dir), DOOM_WAD (path to doom1.wad), CIQ_KEY (developer key).
 set -euo pipefail
@@ -24,6 +25,11 @@ if [ ! -f "$GEN/maps.xml" ] || [ "$WAD" -nt "$GEN/maps.xml" ]; then
 fi
 
 mkdir -p bin
+if [ "${1:-}" = test ]; then
+    "$SDK/bin/monkeyc" -d "$DEVICE" -f monkey.jungle -o bin/DoomIQ-test.prg -y "$KEY" -t
+    pgrep -f "$SDK/bin/simulator" >/dev/null || { "$SDK/bin/connectiq" & sleep 5; }
+    exec "$SDK/bin/monkeydo" bin/DoomIQ-test.prg "$DEVICE" -t
+fi
 "$SDK/bin/monkeyc" -d "$DEVICE" -f monkey.jungle -o bin/DoomIQ.prg -y "$KEY" -w
 
 case "${1:-}" in
