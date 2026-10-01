@@ -242,37 +242,68 @@ module PSight {
     // Returns true
     //  if strace crosses the given node successfully.
     //
+    // The C recursion goes as deep as the BSP tree, and Monkey C's call
+    // stack overflows long before that, so this walks with its own stack.
+    // Same order as the C: the start side first, then the far side only if
+    // the trace crosses the partition. A false anywhere means blocked.
+    //
+    // Entries are a node/subsector number to cross, or -(node * 2 + side) - 2
+    // for "the start side of node is done, check the partition".
+    const MAXSIGHTSTACK = 128;
+    var sightstack as Array<Number> = new [MAXSIGHTSTACK] as Array<Number>;
+
     function P_CrossBSPNode(bspnum as Number) as Boolean {
-        if ((bspnum & DoomData.NF_SUBSECTOR) != 0) {
-            if (bspnum == -1) {
-                return P_CrossSubsector(0);
-            } else {
-                return P_CrossSubsector(bspnum & ~DoomData.NF_SUBSECTOR);
+        var stack = sightstack;
+        var children = PSetup.nodes_children;
+        stack[0] = bspnum;
+        var sp = 1;
+
+        while (sp > 0) {
+            sp--;
+            bspnum = stack[sp];
+
+            if (bspnum < -1) {
+                var e = -bspnum - 2;
+                var bsp = e >> 1;
+                var side = e & 1;
+
+                // the partition plane is crossed here
+                if (side == P_DivlineSide(t2x, t2y, nodeDivline(bsp))) {
+                    // the line doesn't touch the other side
+                    continue;
+                }
+
+                // cross the ending side
+                stack[sp] = children[bsp * 2 + (side ^ 1)];
+                sp++;
+                continue;
             }
+
+            if ((bspnum & DoomData.NF_SUBSECTOR) != 0) {
+                var crossed;
+                if (bspnum == -1) {
+                    crossed = P_CrossSubsector(0);
+                } else {
+                    crossed = P_CrossSubsector(bspnum & ~DoomData.NF_SUBSECTOR);
+                }
+                if (!crossed) {
+                    return false;
+                }
+                continue;
+            }
+
+            // decide which side the start point is on
+            var side = P_DivlineSide(strace[PMapUtl.DL_X], strace[PMapUtl.DL_Y], nodeDivline(bspnum));
+            if (side == 2) {
+                side = 0;   // an "on" should cross both sides
+            }
+
+            // cross the starting side, then come back for the partition
+            stack[sp] = -(bspnum * 2 + side) - 2;
+            stack[sp + 1] = children[bspnum * 2 + side];
+            sp += 2;
         }
-
-        var bsp = bspnum;
-
-        // decide which side the start point is on
-        var side = P_DivlineSide(strace[PMapUtl.DL_X], strace[PMapUtl.DL_Y], nodeDivline(bsp));
-        if (side == 2) {
-            side = 0;   // an "on" should cross both sides
-        }
-
-        // cross the starting side
-        if (!P_CrossBSPNode(PSetup.nodes_children[bsp * 2 + side])) {
-            return false;
-        }
-
-        // the partition plane is crossed here
-        // (nodediv was overwritten by the recursion, so fill it again)
-        if (side == P_DivlineSide(t2x, t2y, nodeDivline(bsp))) {
-            // the line doesn't touch the other side
-            return true;
-        }
-
-        // cross the ending side
-        return P_CrossBSPNode(PSetup.nodes_children[bsp * 2 + (side ^ 1)]);
+        return true;
     }
 
     //
