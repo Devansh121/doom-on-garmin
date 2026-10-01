@@ -1,0 +1,5 @@
+<jsonDataResources>
+    <jsonData id="sprnames" filename="sprnames.json" />
+    <jsonData id="states" filename="states.json" />
+    <jsonData id="mobjinfo" filename="mobjinfo.json" />
+</jsonDataResources>

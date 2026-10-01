@@ -23,7 +23,7 @@ DOOM_WAD=path/to/doom1.wad ./build.sh run       # run in the simulator
 DOOM_WAD=path/to/doom1.wad ./build.sh install   # copy to a watch plugged in over USB
 ```
 
-`build.sh` runs `tools/wad2ciq.py` first, which unpacks the map lumps into `resources/generated/`. Connect IQ apps can't read files, so the WAD data is built into the app. The trig tables in `resources/tables/` were extracted from the original `tables.c` with `tools/tables2ciq.py`.
+`build.sh` runs `tools/wad2ciq.py` first, which unpacks the map lumps into `resources/generated/`. Connect IQ apps can't read files, so the WAD data is built into the app. The trig tables in `resources/tables/` were extracted from the original `tables.c` with `tools/tables2ciq.py`. Likewise the thing and state tables in `resources/info/` (and `source/doom/Info.mc`) come from `info.c` / `info.h` via `tools/info2ciq.py`.
 
 ## Controls
 
