@@ -11,6 +11,7 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 
+(:extendedCode)
 module RData {
 
     var numtextures as Number = 0;

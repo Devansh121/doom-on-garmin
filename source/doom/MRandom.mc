@@ -5,6 +5,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module MRandom {
 
     //

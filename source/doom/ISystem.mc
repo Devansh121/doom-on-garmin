@@ -13,6 +13,7 @@ class DoomError extends Lang.Exception {
     }
 }
 
+(:extendedCode)
 module ISystem {
 
     function I_Error(error as String) as Void {

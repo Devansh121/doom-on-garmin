@@ -12,6 +12,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module GGame {
 
     // doomstat.h: nightmare mode flag, single player.

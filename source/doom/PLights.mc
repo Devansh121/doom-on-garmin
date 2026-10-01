@@ -10,6 +10,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PLights {
 
     // fireflicker_t fields

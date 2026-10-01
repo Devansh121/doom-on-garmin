@@ -8,6 +8,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module DoomStat {
 
     const MAXPLAYERS = 4;

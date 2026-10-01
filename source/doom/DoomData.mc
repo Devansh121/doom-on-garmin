@@ -6,6 +6,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module DoomData {
 
     // Lump order in a map WAD: each map needs a couple of lumps

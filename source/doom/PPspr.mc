@@ -10,6 +10,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PPspr {
 
     const LOWERSPEED = MFixed.FRACUNIT * 6;

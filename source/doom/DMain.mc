@@ -14,6 +14,7 @@
 import Toybox.Lang;
 import Toybox.System;
 
+(:extendedCode)
 module DMain {
 
     // How much rendering one tick may do, in RSegs.work units.

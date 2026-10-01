@@ -13,6 +13,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PDoors {
 
     // vldoor_t fields

@@ -10,6 +10,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PUser {
 
     // Index of the special effects (INVUL inverse) map.

@@ -9,6 +9,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module DItems {
 
     // weaponinfo_t field offsets.

@@ -12,6 +12,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PMapUtl {
 
     // divline_t fields

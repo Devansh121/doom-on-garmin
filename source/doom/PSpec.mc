@@ -16,6 +16,7 @@
 import Toybox.Lang;
 import Toybox.System;
 
+(:extendedCode)
 module PSpec {
 
     //

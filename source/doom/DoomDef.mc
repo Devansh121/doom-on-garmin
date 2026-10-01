@@ -5,6 +5,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module DoomDef {
 
     // Game mode handling - identify IWAD version

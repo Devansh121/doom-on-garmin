@@ -12,6 +12,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module RPlane {
 
     const MAXVISPLANES = 128;

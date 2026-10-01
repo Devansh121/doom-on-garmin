@@ -7,6 +7,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module MBBox {
 
     // bbox coordinates

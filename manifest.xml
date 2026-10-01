@@ -1,5 +1,5 @@
 <iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
-    <iq:application id="4f1d0c7e9b2a4e6f8c3d5a7b9e1f2a3c" type="watch-app" name="@Strings.AppName" entry="DoomApp" launcherIcon="@Drawables.LauncherIcon" minApiLevel="3.2.0">
+    <iq:application id="4f1d0c7e9b2a4e6f8c3d5a7b9e1f2a3c" type="watch-app" name="@Strings.AppName" entry="DoomApp" launcherIcon="@Drawables.LauncherIcon" minApiLevel="5.1.0">
         <iq:products>
             <iq:product id="fr965"/>
         </iq:products>

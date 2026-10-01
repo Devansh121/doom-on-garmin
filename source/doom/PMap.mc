@@ -16,6 +16,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PMap {
 
     var tmbbox as Array<Number> = [0, 0, 0, 0] as Array<Number>;

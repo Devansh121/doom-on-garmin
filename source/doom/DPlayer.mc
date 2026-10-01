@@ -11,6 +11,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module DPlayer {
 
     const MAXPLAYERS = DoomStat.MAXPLAYERS;

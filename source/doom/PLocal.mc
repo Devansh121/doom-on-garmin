@@ -4,6 +4,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PLocal {
 
     const FLOATSPEED = MFixed.FRACUNIT * 4;

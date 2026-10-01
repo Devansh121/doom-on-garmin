@@ -7,6 +7,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PPlats {
 
     // plat_t fields

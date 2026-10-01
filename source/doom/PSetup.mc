@@ -14,6 +14,7 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 
+(:extendedCode)
 module PSetup {
 
     //

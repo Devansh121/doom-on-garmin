@@ -10,6 +10,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PEnemy {
 
     // dirtype_t

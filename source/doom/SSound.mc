@@ -7,6 +7,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module SSound {
 
     // sfxenum_t values from sounds.h, used by p_mobj.c.

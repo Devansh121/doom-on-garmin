@@ -7,6 +7,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module Actions {
 
     // st->action.acp1(mobj)

@@ -8,6 +8,7 @@
 
 import Toybox.Lang;
 
+(:extendedCode)
 module PInter {
 
     //
