@@ -13,6 +13,7 @@
 //  - texturetranslation (animated walls) is identity until p_spec.
 //  - drawsegs don't keep sprite clip lists yet; they come with r_things.
 
+import Toybox.Graphics;
 import Toybox.Lang;
 
 module RSegs {
@@ -130,6 +131,22 @@ module RSegs {
         var floorlight = planelight;
         var floorheight = planeheight;
 
+        // R_DrawColumn and the plane light lookup are inlined below; this
+        // loop runs for every column of every wall, and calls plus module
+        // lookups cost more than the drawing itself.
+        var dc = RDraw.dc as Graphics.Dc;
+        var colx = RDraw.colx;
+        var rowy = RDraw.rowy;
+        var lastcolor = RDraw.lastcolor;
+        var yslope = RMain.yslope;
+        var zlight = RMain.zlight;
+        var flatcolors = RData.flatcolors;
+        var skycolor = texturecolors[RData.skytexture * RMain.NUMCOLORMAPS];
+        var fixedcolormap = RMain.fixedcolormap;
+        var color;
+        var px;
+        var py;
+
         for (; rw_x < rw_stopx; rw_x++) {
             var x = rw_x;
 
@@ -152,7 +169,26 @@ module RSegs {
                 if (top <= bottom) {
                     // ceilingplane->top[rw_x] = top;
                     // ceilingplane->bottom[rw_x] = bottom;
-                    RDraw.R_DrawColumn(x, top, bottom, planeColor(ceilbase, ceillight, ceilheight, top, bottom));
+                    if (ceilbase < 0) {
+                        color = skycolor;
+                    } else if (fixedcolormap >= 0) {
+                        color = flatcolors[ceilbase + fixedcolormap];
+                    } else {
+                        // R_MapPlane's light for the span's middle row
+                        var index = (((ceilheight.toLong() * yslope[(top + bottom) >> 1]) >> 16).toNumber()) >> RMain.LIGHTZSHIFT;
+                        if (index >= RMain.MAXLIGHTZ) {
+                            index = RMain.MAXLIGHTZ - 1;
+                        }
+                        color = flatcolors[ceilbase + zlight[ceillight + index]];
+                    }
+                    color = color;
+                    if (color != lastcolor) {
+                        dc.setColor(color, color);
+                        lastcolor = color;
+                    }
+                    px = colx[x];
+                    py = rowy[top];
+                    dc.fillRectangle(px, py, colx[x + 1] - px, rowy[bottom + 1] - py);
                     if (dtrace != null) {
                         dtrace.addAll([1, x, top, bottom, RPlane.visplanes_picnum[ceilingplane],
                                        RPlane.visplanes_height[ceilingplane] >> 16]);
@@ -175,7 +211,26 @@ module RSegs {
                 if (top <= bottom) {
                     // floorplane->top[rw_x] = top;
                     // floorplane->bottom[rw_x] = bottom;
-                    RDraw.R_DrawColumn(x, top, bottom, planeColor(floorbase, floorlight, floorheight, top, bottom));
+                    if (floorbase < 0) {
+                        color = skycolor;
+                    } else if (fixedcolormap >= 0) {
+                        color = flatcolors[floorbase + fixedcolormap];
+                    } else {
+                        // R_MapPlane's light for the span's middle row
+                        var index = (((floorheight.toLong() * yslope[(top + bottom) >> 1]) >> 16).toNumber()) >> RMain.LIGHTZSHIFT;
+                        if (index >= RMain.MAXLIGHTZ) {
+                            index = RMain.MAXLIGHTZ - 1;
+                        }
+                        color = flatcolors[floorbase + zlight[floorlight + index]];
+                    }
+                    color = color;
+                    if (color != lastcolor) {
+                        dc.setColor(color, color);
+                        lastcolor = color;
+                    }
+                    px = colx[x];
+                    py = rowy[top];
+                    dc.fillRectangle(px, py, colx[x + 1] - px, rowy[bottom + 1] - py);
                     if (dtrace != null) {
                         dtrace.addAll([2, x, top, bottom, RPlane.visplanes_picnum[floorplane],
                                        RPlane.visplanes_height[floorplane] >> 16]);
@@ -201,7 +256,14 @@ module RSegs {
                 // single sided line
                 // (colfunc draws nothing when dc_yh < dc_yl)
                 if (yl <= yh) {
-                    RDraw.R_DrawColumn(x, yl, yh, texturecolors[midbase + level]);
+                    color = texturecolors[midbase + level];
+                    if (color != lastcolor) {
+                        dc.setColor(color, color);
+                        lastcolor = color;
+                    }
+                    px = colx[x];
+                    py = rowy[yl];
+                    dc.fillRectangle(px, py, colx[x + 1] - px, rowy[yh + 1] - py);
                     if (dtrace != null) {
                         dtrace.addAll([0, x, yl, yh, midtexture, level]);
                     }
@@ -220,7 +282,14 @@ module RSegs {
                     }
 
                     if (mid >= yl) {
-                        RDraw.R_DrawColumn(x, yl, mid, texturecolors[topbase + level]);
+                        color = texturecolors[topbase + level];
+                        if (color != lastcolor) {
+                            dc.setColor(color, color);
+                            lastcolor = color;
+                        }
+                        px = colx[x];
+                        py = rowy[yl];
+                        dc.fillRectangle(px, py, colx[x + 1] - px, rowy[mid + 1] - py);
                         if (dtrace != null) {
                             dtrace.addAll([0, x, yl, mid, toptexture, level]);
                         }
@@ -246,7 +315,14 @@ module RSegs {
                     }
 
                     if (mid <= yh) {
-                        RDraw.R_DrawColumn(x, mid, yh, texturecolors[bottombase + level]);
+                        color = texturecolors[bottombase + level];
+                        if (color != lastcolor) {
+                            dc.setColor(color, color);
+                            lastcolor = color;
+                        }
+                        px = colx[x];
+                        py = rowy[mid];
+                        dc.fillRectangle(px, py, colx[x + 1] - px, rowy[yh + 1] - py);
                         if (dtrace != null) {
                             dtrace.addAll([0, x, mid, yh, bottomtexture, level]);
                         }
@@ -268,6 +344,7 @@ module RSegs {
             topfrac += topstep;
             bottomfrac += bottomstep;
         }
+        RDraw.lastcolor = lastcolor;
     }
 
     //
@@ -299,22 +376,6 @@ module RSegs {
         planelight = light * RMain.MAXLIGHTZ;
     }
 
-    // Color of a floor/ceiling span: the light R_MapPlane would use for
-    // the span's middle row. Sky is always full bright.
-    function planeColor(base as Number, light as Number, height as Number, top as Number, bottom as Number) as Number {
-        if (base < 0) {
-            return RData.texturecolors[RData.skytexture * RMain.NUMCOLORMAPS];
-        }
-        if (RMain.fixedcolormap >= 0) {
-            return RData.flatcolors[base + RMain.fixedcolormap];
-        }
-        var distance = MFixed.FixedMul(height, RMain.yslope[(top + bottom) >> 1]);
-        var index = distance >> RMain.LIGHTZSHIFT;
-        if (index >= RMain.MAXLIGHTZ) {
-            index = RMain.MAXLIGHTZ - 1;
-        }
-        return RData.flatcolors[base + RMain.zlight[light + index]];
-    }
 
     //
     // R_StoreWallRange
