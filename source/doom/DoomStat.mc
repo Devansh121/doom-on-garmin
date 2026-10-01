@@ -35,5 +35,8 @@ module DoomStat {
 
     // Player spawn spots. Each one is a mapthing_t as
     // [x, y, angle, type, options], or null if the map has none.
+    // gametic, from g_game.c (added for p_enemy's A_Tracer)
+    var gametic as Number = 0;
+
     var playerstarts as Array<Array<Number>?> = new [MAXPLAYERS] as Array<Array<Number>?>;
 }

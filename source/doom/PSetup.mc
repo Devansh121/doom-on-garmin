@@ -595,7 +595,9 @@ module PSetup {
                     lines_dy = newArray(numlines);
                     lines_flags = newArray(numlines);
                     lines_special = newArray(numlines);
-                    lines_tag = newArray(numlines);
+                    // one spare slot past the last line: the "line_t junk"
+                    // p_enemy passes to EV_DoDoor / EV_DoFloor
+                    lines_tag = newArray(numlines + 1);
                     lines_sidenum = newArray(numlines * 2);
                     lines_bbox = newArray(numlines * 4);
                     lines_slopetype = newArray(numlines);
