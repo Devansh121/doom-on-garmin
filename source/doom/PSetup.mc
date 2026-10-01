@@ -50,6 +50,14 @@ module PSetup {
     var sectors_soundorg_x as Array<Number> = [] as Array<Number>;
     var sectors_soundorg_y as Array<Number> = [] as Array<Number>;
     var sectors_linecount as Array<Number> = [] as Array<Number>;
+    // list of mobjs in sector, -1 for none
+    var sectors_thinglist as Array<Number> = [] as Array<Number>;
+    // thinker_t for reversable actions, -1 for none
+    var sectors_specialdata as Array<Number> = [] as Array<Number>;
+    // 0 = untraversed, 1,2 = sndlines -1
+    var sectors_soundtraversed as Array<Number> = [] as Array<Number>;
+    // thing that made a sound (or null)
+    var sectors_soundtarget as Array<Number> = [] as Array<Number>;
     // index of the sector's first entry in linebuffer
     var sectors_lines as Array<Number> = [] as Array<Number>;
 
@@ -84,6 +92,8 @@ module PSetup {
     var lines_frontsector as Array<Number> = [] as Array<Number>;
     var lines_backsector as Array<Number> = [] as Array<Number>;
     var lines_validcount as Array<Number> = [] as Array<Number>;
+    // thinker_t for reversable actions, -1 for none
+    var lines_specialdata as Array<Number> = [] as Array<Number>;
 
     var numsides as Number = 0;
     var sides_textureoffset as Array<Number> = [] as Array<Number>;
@@ -108,8 +118,8 @@ module PSetup {
     // origin of block map
     var bmaporgx as Number = 0;
     var bmaporgy as Number = 0;
-    // for thing chains
-    var blocklinks as Array = [];
+    // for thing chains: first mobj in each block, -1 for none
+    var blocklinks as Array<Number> = [] as Array<Number>;
 
     // sectors[i].lines for every sector, back to back
     var linebuffer as Array<Number> = [] as Array<Number>;
@@ -209,6 +219,10 @@ module PSetup {
             sectors_tag[i] = ms[m + 6];
             sectors_validcount[i] = 0;
             sectors_linecount[i] = 0;
+            sectors_thinglist[i] = -1;
+            sectors_specialdata[i] = -1;
+            sectors_soundtraversed[i] = 0;
+            sectors_soundtarget[i] = -1;
         }
     }
 
@@ -344,6 +358,7 @@ module PSetup {
                 lines_backsector[i] = -1;
             }
             lines_validcount[i] = 0;
+            lines_specialdata[i] = -1;
         }
     }
 
@@ -378,7 +393,11 @@ module PSetup {
         bmapheight = blockmaplump[3];
 
         // clear out mobj chains
-        blocklinks = new [bmapwidth * bmapheight];
+        var count = bmapwidth * bmapheight;
+        blocklinks = newArray(count);
+        for (var i = 0; i < count; i++) {
+            blocklinks[i] = -1;
+        }
     }
 
     //
@@ -482,6 +501,10 @@ module PSetup {
         for (var i = 0; i < DoomStat.MAXPLAYERS; i++) {
             DoomStat.playerstarts[i] = null;
         }
+
+        // Size the thinker pool for this map's things.
+        PTick.P_InitThinkers(W_LumpData(DoomData.ML_THINGS).size() / 5);
+        PTick.leveltime = 0;
         setupstep = 0;
         setupindex = 0;
     }
@@ -522,6 +545,10 @@ module PSetup {
                     sectors_soundorg_x = newArray(numsectors);
                     sectors_soundorg_y = newArray(numsectors);
                     sectors_linecount = newArray(numsectors);
+                    sectors_thinglist = newArray(numsectors);
+                    sectors_specialdata = newArray(numsectors);
+                    sectors_soundtraversed = newArray(numsectors);
+                    sectors_soundtarget = newArray(numsectors);
                     sectors_lines = newArray(numsectors);
                 }
                 return slice(numsectors, CHUNK, new Lang.Method(PSetup, :P_LoadSectors));
@@ -556,6 +583,7 @@ module PSetup {
                     lines_frontsector = newArray(numlines);
                     lines_backsector = newArray(numlines);
                     lines_validcount = newArray(numlines);
+                    lines_specialdata = newArray(numlines);
                 }
                 return slice(numlines, CHUNK, new Lang.Method(PSetup, :P_LoadLineDefs));
 

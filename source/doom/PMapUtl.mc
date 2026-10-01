@@ -304,4 +304,111 @@ module PMapUtl {
         // everything was checked
         return true;
     }
+
+    //
+    // THING POSITION SETTING
+    //
+
+    //
+    // P_UnsetThingPosition
+    // Unlinks a thing from block map and sectors.
+    // On each position change, BLOCKMAP and other
+    // lookups maintaining lists ot things inside
+    // these structures need to be updated.
+    //
+    function P_UnsetThingPosition(thing as Number) as Void {
+        var flags = PMobj.mobjs_flags[thing];
+        var snext = PMobj.mobjs_snext[thing];
+        var sprev = PMobj.mobjs_sprev[thing];
+
+        if ((flags & PMobj.MF_NOSECTOR) == 0) {
+            // inert things don't need to be in blockmap?
+            // unlink from subsector
+            if (snext != -1) {
+                PMobj.mobjs_sprev[snext] = sprev;
+            }
+
+            if (sprev != -1) {
+                PMobj.mobjs_snext[sprev] = snext;
+            } else {
+                PSetup.sectors_thinglist[PSetup.subsectors_sector[PMobj.mobjs_subsector[thing]]] = snext;
+            }
+        }
+
+        if ((flags & PMobj.MF_NOBLOCKMAP) == 0) {
+            var bnext = PMobj.mobjs_bnext[thing];
+            var bprev = PMobj.mobjs_bprev[thing];
+
+            // inert things don't need to be in blockmap
+            // unlink from block map
+            if (bnext != -1) {
+                PMobj.mobjs_bprev[bnext] = bprev;
+            }
+
+            if (bprev != -1) {
+                PMobj.mobjs_bnext[bprev] = bnext;
+            } else {
+                var blockx = (PMobj.mobjs_x[thing] - PSetup.bmaporgx) >> PLocal.MAPBLOCKSHIFT;
+                var blocky = (PMobj.mobjs_y[thing] - PSetup.bmaporgy) >> PLocal.MAPBLOCKSHIFT;
+
+                if (blockx >= 0 && blockx < PSetup.bmapwidth
+                    && blocky >= 0 && blocky < PSetup.bmapheight) {
+                    PSetup.blocklinks[blocky * PSetup.bmapwidth + blockx] = bnext;
+                }
+            }
+        }
+    }
+
+    //
+    // P_SetThingPosition
+    // Links a thing into both a block and a subsector
+    // based on it's x y.
+    // Sets thing->subsector properly
+    //
+    function P_SetThingPosition(thing as Number) as Void {
+        var flags = PMobj.mobjs_flags[thing];
+
+        // link into subsector
+        var ss = RMain.R_PointInSubsector(PMobj.mobjs_x[thing], PMobj.mobjs_y[thing]);
+        PMobj.mobjs_subsector[thing] = ss;
+
+        if ((flags & PMobj.MF_NOSECTOR) == 0) {
+            // invisible things don't go into the sector links
+            var sec = PSetup.subsectors_sector[ss];
+
+            PMobj.mobjs_sprev[thing] = -1;
+            PMobj.mobjs_snext[thing] = PSetup.sectors_thinglist[sec];
+
+            if (PSetup.sectors_thinglist[sec] != -1) {
+                PMobj.mobjs_sprev[PSetup.sectors_thinglist[sec]] = thing;
+            }
+
+            PSetup.sectors_thinglist[sec] = thing;
+        }
+
+        // link into blockmap
+        if ((flags & PMobj.MF_NOBLOCKMAP) == 0) {
+            // inert things don't need to be in blockmap
+            var blockx = (PMobj.mobjs_x[thing] - PSetup.bmaporgx) >> PLocal.MAPBLOCKSHIFT;
+            var blocky = (PMobj.mobjs_y[thing] - PSetup.bmaporgy) >> PLocal.MAPBLOCKSHIFT;
+
+            if (blockx >= 0
+                && blockx < PSetup.bmapwidth
+                && blocky >= 0
+                && blocky < PSetup.bmapheight) {
+                var link = blocky * PSetup.bmapwidth + blockx;
+                PMobj.mobjs_bprev[thing] = -1;
+                PMobj.mobjs_bnext[thing] = PSetup.blocklinks[link];
+                if (PSetup.blocklinks[link] != -1) {
+                    PMobj.mobjs_bprev[PSetup.blocklinks[link]] = thing;
+                }
+
+                PSetup.blocklinks[link] = thing;
+            } else {
+                // thing is off the map
+                PMobj.mobjs_bnext[thing] = -1;
+                PMobj.mobjs_bprev[thing] = -1;
+            }
+        }
+    }
 }
