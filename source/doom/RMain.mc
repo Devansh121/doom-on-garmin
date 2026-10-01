@@ -155,8 +155,14 @@ module RMain {
             return 0;
         }
 
-        var left = MFixed.FixedMul(ndy >> MFixed.FRACBITS, dx);
-        var right = MFixed.FixedMul(dy, ndx >> MFixed.FRACBITS);
+        // FixedMul inlined (see MFixed): a call costs more than the math.
+        // The node deltas are whole map units, so >> FRACBITS leaves a
+        // value that fits in 16 bits and only b needs splitting:
+        // (a*b)>>16 = a*bh + (a*bl)>>16.
+        var a = ndy >> MFixed.FRACBITS;
+        var left = a * (dx >> 16) + ((a * (dx & 0xffff)) >> 16);
+        a = ndx >> MFixed.FRACBITS;
+        var right = a * (dy >> 16) + ((a * (dy & 0xffff)) >> 16);
 
         if (right < left) {
             // front side
@@ -219,7 +225,6 @@ module RMain {
     //  tantoangle[] table.
     //
     function R_PointToAngle(x as Number, y as Number) as Number {
-        var tantoangle = Tables.tantoangle;
         x -= viewx;
         y -= viewy;
 
@@ -227,55 +232,46 @@ module RMain {
             return 0;
         }
 
-        if (x >= 0) {
-            // x >=0
-            if (y >= 0) {
-                // y>= 0
-                if (x > y) {
-                    // octant 0
-                    return tantoangle[Tables.SlopeDiv(y, x)];
-                } else {
-                    // octant 1
-                    return Tables.ANG90 - 1 - tantoangle[Tables.SlopeDiv(x, y)];
-                }
-            } else {
-                // y<0
-                y = -y;
-
-                if (x > y) {
-                    // octant 8
-                    return -tantoangle[Tables.SlopeDiv(y, x)];
-                } else {
-                    // octant 7
-                    return Tables.ANG270 + tantoangle[Tables.SlopeDiv(x, y)];
-                }
+        // The C code's eight octant branches each call SlopeDiv on
+        // (y, x) or (x, y). They're folded here so SlopeDiv's common case
+        // is done inline once; a call costs about 50 us on the watch. The
+        // octant results are the same expressions as in the C.
+        var xneg = x < 0;
+        var yneg = y < 0;
+        if (xneg) {
+            x = -x;
+        }
+        if (yneg) {
+            y = -y;
+        }
+        var xbig = x > y;
+        var num = xbig ? y : x;
+        var den = xbig ? x : y;
+        var q;
+        if (num >= 0 && num < 0x10000000 && den >= 512) {
+            q = (num << 3) / (den >> 8);
+            if (q > Tables.SLOPERANGE) {
+                q = Tables.SLOPERANGE;
             }
         } else {
-            // x<0
-            x = -x;
-
-            if (y >= 0) {
-                // y>= 0
-                if (x > y) {
-                    // octant 3
-                    return Tables.ANG180 - 1 - tantoangle[Tables.SlopeDiv(y, x)];
-                } else {
-                    // octant 2
-                    return Tables.ANG90 + tantoangle[Tables.SlopeDiv(x, y)];
-                }
-            } else {
-                // y<0
-                y = -y;
-
-                if (x > y) {
-                    // octant 4
-                    return Tables.ANG180 + tantoangle[Tables.SlopeDiv(y, x)];
-                } else {
-                    // octant 5
-                    return Tables.ANG270 - 1 - tantoangle[Tables.SlopeDiv(x, y)];
-                }
-            }
+            q = Tables.SlopeDiv(num, den);
         }
+        var t = Tables.tantoangle[q];
+
+        if (!xneg) {
+            if (!yneg) {
+                // octant 0 / octant 1
+                return xbig ? t : Tables.ANG90 - 1 - t;
+            }
+            // octant 8 / octant 7
+            return xbig ? -t : Tables.ANG270 + t;
+        }
+        if (!yneg) {
+            // octant 3 / octant 2
+            return xbig ? Tables.ANG180 - 1 - t : Tables.ANG90 + t;
+        }
+        // octant 4 / octant 5
+        return xbig ? Tables.ANG180 + t : Tables.ANG270 - 1 - t;
     }
 
     function R_PointToAngle2(x1 as Number, y1 as Number, x2 as Number, y2 as Number) as Number {
