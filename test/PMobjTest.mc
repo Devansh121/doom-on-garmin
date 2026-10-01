@@ -71,7 +71,8 @@ function testSpawnMapThingsE1M1(logger as Test.Logger) as Boolean {
         }
     }
     Test.assertEqual(mobjs, 92);
-    Test.assertEqual(count, 92);
+    // plus the 4 E1M1 lights from P_SpawnSpecials
+    Test.assertEqual(count, 96);
     Test.assertEqual(DoomStat.totalkills, 6);
     Test.assertEqual(DoomStat.totalitems, 37);
 

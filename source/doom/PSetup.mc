@@ -672,8 +672,20 @@ module PSetup {
                 // clear special respawning que
                 PMobj.iquehead = 0;
                 PMobj.iquetail = 0;
+
+                // set up world state
+                PSpec.P_SpawnSpecials();
                 return true;
         }
+    }
+
+    //
+    // P_Init
+    //
+    function P_Init() as Void {
+        PSwitch.P_InitSwitchList();
+        PSpec.P_InitPicAnims();
+        // R_InitSprites: sprites aren't drawn yet.
     }
 
     // Runs fn over the next count records of the current step, moving on

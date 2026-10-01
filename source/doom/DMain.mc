@@ -64,6 +64,8 @@ module DMain {
             if (RMain.R_InitStep()) {
                 System.println("R_Init: Init DOOM refresh daemon.");
                 Info.Info_Init();
+                System.println("P_Init: Init Playloop state.");
+                PSetup.P_Init();
                 GGame.G_InitNew(DoomStat.gameskill, 1, 1);
                 startupstep++;
             }
