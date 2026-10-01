@@ -18,6 +18,10 @@ import sys
 
 TABLES = {"finetangent": 4096, "finesine": 10240, "tantoangle": 2049}
 
+# v_video.c: the five gamma correction levels, gammatable[5][256] flattened.
+# Only the build tools use it (when baking colors), so it isn't a resource.
+GAMMA = ("v_video.c", "gammatable", 1280)
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -39,6 +43,15 @@ def main():
             json.dump(values, f, separators=(",", ":"))
         entries.append(f'    <jsonData id="{name}" filename="{name}.json" />')
         print(f"{name}: {count} values")
+
+    vsrc = open(os.path.join(os.path.dirname(args.tables_c), GAMMA[0])).read()
+    m = re.search(r"\b%s\[5\]\[256\]\s*=\s*\{(.*?)\};" % GAMMA[1], vsrc, re.S)
+    values = [int(v) for v in re.findall(r"\d+", m.group(1))]
+    if len(values) != GAMMA[2]:
+        sys.exit(f"gammatable: expected {GAMMA[2]} values, got {len(values)}")
+    with open(os.path.join(os.path.dirname(__file__), "gammatable.json"), "w") as f:
+        json.dump(values, f, separators=(",", ":"))
+    print(f"gammatable: {len(values)} values")
 
     with open(os.path.join(args.out, "tables.xml"), "w") as f:
         f.write("<jsonDataResources>\n" + "\n".join(entries) + "\n</jsonDataResources>\n")

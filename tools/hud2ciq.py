@@ -23,7 +23,7 @@ import sys
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wad2ciq import Wad  # noqa: E402
+from wad2ciq import Wad, gamma_palette  # noqa: E402
 
 
 def face_names():
@@ -100,12 +100,16 @@ def palette_tints(pals):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("wad", help="path to doom1.wad")
+    ap.add_argument("--gamma", type=int, default=2, choices=range(5),
+                    help="gamma correction level, same as wad2ciq.py's")
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "generated"))
     args = ap.parse_args()
 
     wad = Wad(args.wad)
     playpal_lump = wad.lump(wad.num_for_name("PLAYPAL"))
-    pals = [playpal_lump[i * 768:(i + 1) * 768] for i in range(len(playpal_lump) // 768)]
+    # I_SetPalette applies the gamma table to whichever palette is set.
+    pals = [gamma_palette(playpal_lump[i * 768:(i + 1) * 768], args.gamma)
+            for i in range(len(playpal_lump) // 768)]
 
     resdir = os.path.join(args.out, "resources")
     imgdir = os.path.join(resdir, "hud")

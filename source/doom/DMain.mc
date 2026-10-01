@@ -39,6 +39,21 @@ module DMain {
     var fpsstart as Number = 0;
     var ticks as Number = 0;
 
+    // Timing for the overlay, per frame: wall-clock ms, ms spent in tics
+    // and in rendering, and how many callbacks the frame took.
+    var framestart as Number = 0;
+    var ticms as Number = 0;
+    var renderms as Number = 0;
+    var callbacks as Number = 0;
+    var lastframems as Number = 0;
+    var lastticms as Number = 0;
+    var lastrenderms as Number = 0;
+    var lastcallbacks as Number = 0;
+
+    function D_Stats() as String {
+        return lastframems + "ms T" + lastticms + " R" + lastrenderms + " cb" + lastcallbacks;
+    }
+
     function D_StartupMessage() as String {
         return started ? "" : "Loading " + startupstep;
     }
@@ -165,6 +180,19 @@ module DMain {
         }
 
         ticks++;
+        callbacks++;
+        var t0 = System.getTimer();
+        var result = D_TickFrame();
+        var spent = System.getTimer() - t0;
+        if (phase == PH_TICS && !result) {
+            ticms += spent;
+        } else {
+            renderms += spent;
+        }
+        return result;
+    }
+
+    function D_TickFrame() as Boolean {
         // One budget per callback: tics first, then whatever is left
         // goes to rendering, so a callback doesn't end half used.
         var renderbudget = RENDERBUDGET;
@@ -188,6 +216,15 @@ module DMain {
                 frames = 0;
                 fpsstart = now;
             }
+            var t = System.getTimer();
+            lastframems = t - framestart;
+            framestart = t;
+            lastticms = ticms;
+            lastrenderms = renderms;
+            lastcallbacks = callbacks;
+            ticms = 0;
+            renderms = 0;
+            callbacks = 0;
             D_StartFrame();
             return true;
         }

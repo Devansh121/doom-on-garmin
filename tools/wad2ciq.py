@@ -117,6 +117,14 @@ def composite_texture(wad, data, ofs, pnames):
     return texels
 
 
+def gamma_palette(playpal, usegamma):
+    """PLAYPAL through v_video.c's gammatable, like I_SetPalette does with
+    usegamma. Level 0 is the original, 4 the brightest."""
+    table = json.load(open(os.path.join(os.path.dirname(__file__), "gammatable.json")))
+    g = table[usegamma * 256:(usegamma + 1) * 256]
+    return bytes(g[c] for c in playpal)
+
+
 def lit_colors(texels, playpal, colormap):
     """Average 0xRRGGBB of the texels under each of the 32 light levels."""
     texels = [t for t in texels if t is not None]
@@ -134,12 +142,12 @@ def lit_colors(texels, playpal, colormap):
     return out
 
 
-def convert_colors(wad):
+def convert_colors(wad, usegamma):
     """Flat stand-ins for R_InitTextures / R_InitFlats / R_InitColormaps:
     the renderer draws every texture and flat as its average color, so
     bake that color for each COLORMAP light level instead of shipping the
     graphics."""
-    playpal = wad.lump(wad.num_for_name("PLAYPAL"))[:768]
+    playpal = gamma_palette(wad.lump(wad.num_for_name("PLAYPAL"))[:768], usegamma)
     colormap = wad.lump(wad.num_for_name("COLORMAP"))
 
     pdata = wad.lump(wad.num_for_name("PNAMES"))
@@ -252,6 +260,8 @@ def convert_map(wad, mapname, textures, firstflat):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("wad", help="path to doom1.wad")
+    ap.add_argument("--gamma", type=int, default=2, choices=range(5),
+                    help="gamma correction level (v_video.c usegamma); the AMOLED looks dull at 0")
     ap.add_argument("--maps", nargs="+", default=[f"E1M{m}" for m in range(1, 10)])
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "generated"))
     args = ap.parse_args()
@@ -281,7 +291,7 @@ def main():
                         for l in MAP_LUMPS)
         cases.append(f'        if (name.equals("{mapname}")) {{\n            return [{ids}];\n        }}')
 
-    for name, values in convert_colors(wad).items():
+    for name, values in convert_colors(wad, args.gamma).items():
         with open(os.path.join(resdir, f"{name}.json"), "w") as f:
             json.dump(values, f, separators=(",", ":"))
         entries.append(f'    <jsonData id="{name}" filename="{name}.json" />')

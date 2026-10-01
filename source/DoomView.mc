@@ -94,6 +94,8 @@ class DoomView extends WatchUi.View {
         HuStuff.HU_Drawer(dc, w / 2, viewy + 4);
 
         dc.setColor(Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(w / 2, sbar != null ? bary + BAR_H + 4 : 22, Graphics.FONT_XTINY, DMain.fps + " fps", Graphics.TEXT_JUSTIFY_CENTER);
+        var statsy = sbar != null ? bary + BAR_H + 2 : 22;
+        dc.drawText(w / 2, statsy, Graphics.FONT_XTINY, DMain.fps + " fps", Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(w / 2, statsy + 22, Graphics.FONT_XTINY, DMain.D_Stats(), Graphics.TEXT_JUSTIFY_CENTER);
     }
 }
