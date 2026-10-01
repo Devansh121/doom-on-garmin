@@ -539,6 +539,9 @@ module RMain {
         if (s == 9) {
             R_InitTextureMapping_X();
             R_InitTextureMapping_Fence(0, Tables.FINEANGLES / 2);
+            // Nothing else reads finetangent until textured walls need
+            // texturecolumn, so give its 20 KB back.
+            Tables.finetangent = [] as Array<Number>;
             return false;
         }
         if (s == 10) {

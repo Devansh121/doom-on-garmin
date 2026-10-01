@@ -320,11 +320,12 @@ module PSight {
         var s1 = PSetup.subsectors_sector[PMobj.mobjs_subsector[t1]];
         var s2 = PSetup.subsectors_sector[PMobj.mobjs_subsector[t2]];
         var pnum = s1 * PSetup.numsectors + s2;
-        var bytenum = pnum >> 3;
-        var bitnum = 1 << (pnum & 7);
+        // bytenum = pnum>>3, bitnum = 1 << (pnum&7) in the C code; the
+        // lump is packed 32 bits per number here (see wad2ciq.py).
+        var bitnum = 1 << (pnum & 31);
 
         // Check in REJECT table.
-        if ((PSetup.rejectmatrix[bytenum] & bitnum) != 0) {
+        if ((PSetup.rejectmatrix[pnum >> 5] & bitnum) != 0) {
             sightcounts[0]++;
 
             // can't possibly be connected

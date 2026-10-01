@@ -87,8 +87,7 @@ module PSetup {
     var lines_tag as Array<Number> = [] as Array<Number>;
     // sidenum[2] per line: lines_sidenum[i*2 + side]
     var lines_sidenum as Array<Number> = [] as Array<Number>;
-    // 4 per line, indexed with MBBox.BOX*
-    var lines_bbox as Array<Number> = [] as Array<Number>;
+    // (line_t's bbox isn't stored, see P_LineBBox)
     var lines_slopetype as Array<Number> = [] as Array<Number>;
     var lines_frontsector as Array<Number> = [] as Array<Number>;
     var lines_backsector as Array<Number> = [] as Array<Number>;
@@ -114,7 +113,8 @@ module PSetup {
     // Blockmap size.
     var bmapwidth as Number = 0;
     var bmapheight as Number = 0;  // size in mapblocks
-    // the whole lump; blockmap offsets start at index 4
+    // the whole lump, packed two entries per number: read it with
+    // P_BlockmapLump. blockmap offsets start at entry 4
     var blockmaplump as Array<Number> = [] as Array<Number>;
     // origin of block map
     var bmaporgx as Number = 0;
@@ -309,7 +309,6 @@ module PSetup {
         var mld = data;
         var vx = vertexes_x;
         var vy = vertexes_y;
-        var bbox = lines_bbox;
         var sidesector = sides_sector;
 
         for (var i = first; i < last; i++) {
@@ -338,22 +337,7 @@ module PSetup {
                 }
             }
 
-            var b = i * 4;
-            if (vx[v1] < vx[v2]) {
-                bbox[b + MBBox.BOXLEFT] = vx[v1];
-                bbox[b + MBBox.BOXRIGHT] = vx[v2];
-            } else {
-                bbox[b + MBBox.BOXLEFT] = vx[v2];
-                bbox[b + MBBox.BOXRIGHT] = vx[v1];
-            }
-
-            if (vy[v1] < vy[v2]) {
-                bbox[b + MBBox.BOXBOTTOM] = vy[v1];
-                bbox[b + MBBox.BOXTOP] = vy[v2];
-            } else {
-                bbox[b + MBBox.BOXBOTTOM] = vy[v2];
-                bbox[b + MBBox.BOXTOP] = vy[v1];
-            }
+            // bbox is worked out on demand by P_LineBBox to save RAM.
 
             var side0 = mld[m + 5];
             var side1 = mld[m + 6];
@@ -393,6 +377,13 @@ module PSetup {
         }
     }
 
+    // blockmaplump[k]. The lump is packed two shorts per number (see
+    // wad2ciq.py): even k is the low half, odd k the high half.
+    function P_BlockmapLump(k as Number) as Number {
+        var w = blockmaplump[k >> 1];
+        return (k & 1) != 0 ? w >> 16 : (w << 16) >> 16;
+    }
+
     //
     // P_LoadBlockMap
     //
@@ -401,10 +392,10 @@ module PSetup {
         // unpacked the lump as little-endian shorts.
         blockmaplump = W_LumpData(DoomData.ML_BLOCKMAP);
 
-        bmaporgx = blockmaplump[0] << MFixed.FRACBITS;
-        bmaporgy = blockmaplump[1] << MFixed.FRACBITS;
-        bmapwidth = blockmaplump[2];
-        bmapheight = blockmaplump[3];
+        bmaporgx = P_BlockmapLump(0) << MFixed.FRACBITS;
+        bmaporgy = P_BlockmapLump(1) << MFixed.FRACBITS;
+        bmapwidth = P_BlockmapLump(2);
+        bmapheight = P_BlockmapLump(3);
 
         // clear out mobj chains
         var count = bmapwidth * bmapheight;
@@ -600,7 +591,6 @@ module PSetup {
                     // p_enemy passes to EV_DoDoor / EV_DoFloor
                     lines_tag = newArray(numlines + 1);
                     lines_sidenum = newArray(numlines * 2);
-                    lines_bbox = newArray(numlines * 4);
                     lines_slopetype = newArray(numlines);
                     lines_frontsector = newArray(numlines);
                     lines_backsector = newArray(numlines);

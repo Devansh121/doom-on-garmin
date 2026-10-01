@@ -277,13 +277,21 @@ module PMapUtl {
 
         var offset = y * width + x;
 
-        // blockmap is blockmaplump+4 in the C code
-        offset = blockmaplump[4 + offset];
+        // blockmap is blockmaplump+4 in the C code. The lump is packed
+        // two shorts per number (PSetup.P_BlockmapLump), unpacked inline
+        // here since this runs for every block a move touches.
+        var k = 4 + offset;
+        var w = blockmaplump[k >> 1];
+        offset = (k & 1) != 0 ? w >> 16 : (w << 16) >> 16;
 
         // Every list starts with a 0, which the C loop doesn't skip, so
         // line 0 is offered in every block (once per validcount).
-        for (var list = offset; blockmaplump[list] != -1; list++) {
-            var ld = blockmaplump[list];
+        for (var list = offset; true; list++) {
+            w = blockmaplump[list >> 1];
+            var ld = (list & 1) != 0 ? w >> 16 : (w << 16) >> 16;
+            if (ld == -1) {
+                break;
+            }
 
             if (linevalid[ld] == valid) {
                 // line has already been checked

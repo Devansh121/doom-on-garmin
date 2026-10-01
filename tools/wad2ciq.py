@@ -214,9 +214,18 @@ def convert_map(wad, mapname, textures, firstflat):
     # x, y, dx, dy, bbox[2][4], then children as unsigned (NF_SUBSECTOR is 0x8000).
     out["nodes"] = unpack_records(lump["NODES"], "<12h2H")
     out["things"] = unpack_records(lump["THINGS"], "<5h")
-    out["blockmap"] = unpack_records(lump["BLOCKMAP"], "<h")
-    # One number per byte, so rejectmatrix[pnum >> 3] indexes it like p_sight.c.
-    out["reject"] = list(lump["REJECT"])
+    # Two shorts per number to halve the RAM it takes: entry k is the low
+    # half of [k >> 1] for even k, the high half for odd k.
+    bm = unpack_records(lump["BLOCKMAP"], "<h")
+    if len(bm) % 2:
+        bm.append(0)
+    out["blockmap"] = [(bm[k] & 0xFFFF) | ((bm[k + 1] & 0xFFFF) << 16) for k in range(0, len(bm), 2)]
+    out["blockmap"] = [v - (1 << 32) if v >= (1 << 31) else v for v in out["blockmap"]]
+    # 32 bits per number: bit pnum of the lump (bit pnum & 7 of byte
+    # pnum >> 3, as p_sight.c reads it) is bit pnum & 31 of [pnum >> 5].
+    rej = lump["REJECT"] + bytes((-len(lump["REJECT"])) % 4)
+    words = [struct.unpack_from("<I", rej, o)[0] for o in range(0, len(rej), 4)]
+    out["reject"] = [w - (1 << 32) if w >= (1 << 31) else w for w in words]
 
     sides = []
     data = lump["SIDEDEFS"]

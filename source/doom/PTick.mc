@@ -20,7 +20,7 @@ module PTick {
     // room for what gets spawned during play (missiles, puffs, blood,
     // dropped items) and the sector specials.
     var maxthinkers as Number = 0;
-    const EXTRATHINKERS = 160;
+    const EXTRATHINKERS = 112;
 
     // think_t values
     const TF_REMOVED = -1;      // (actionf_v)(-1), freed on the next run

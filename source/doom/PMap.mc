@@ -149,12 +149,20 @@ module PMap {
     // Adjusts tmfloorz and tmceilingz as lines are contacted
     //
     function PIT_CheckLine(ld as Number) as Boolean {
-        var bbox = PSetup.lines_bbox;
-        var b = ld * 4;
-        if (tmbbox[MBBox.BOXRIGHT] <= bbox[b + MBBox.BOXLEFT]
-            || tmbbox[MBBox.BOXLEFT] >= bbox[b + MBBox.BOXRIGHT]
-            || tmbbox[MBBox.BOXTOP] <= bbox[b + MBBox.BOXBOTTOM]
-            || tmbbox[MBBox.BOXBOTTOM] >= bbox[b + MBBox.BOXTOP]) {
+        // ld->bbox, worked out from the vertexes: line_t's bbox isn't
+        // stored, to save RAM.
+        var x1 = PSetup.vertexes_x[PSetup.lines_v1[ld]];
+        var x2 = PSetup.vertexes_x[PSetup.lines_v2[ld]];
+        var y1 = PSetup.vertexes_y[PSetup.lines_v1[ld]];
+        var y2 = PSetup.vertexes_y[PSetup.lines_v2[ld]];
+        var left = x1 < x2 ? x1 : x2;
+        var right = x1 < x2 ? x2 : x1;
+        var bottom = y1 < y2 ? y1 : y2;
+        var top = y1 < y2 ? y2 : y1;
+        if (tmbbox[MBBox.BOXRIGHT] <= left
+            || tmbbox[MBBox.BOXLEFT] >= right
+            || tmbbox[MBBox.BOXTOP] <= bottom
+            || tmbbox[MBBox.BOXBOTTOM] >= top) {
             return true;
         }
 

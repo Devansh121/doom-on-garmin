@@ -4,7 +4,7 @@
 // use. Lines are loaded like P_LoadLineDefs and grouped into sectors like
 // P_GroupLines. Same input as test/maputl_ref.c, from the repo root:
 //
-//   python3 -c "import json;[print(len(d),*d) for n in ['vertexes','linedefs','sidedefs','sectors','blockmap'] for d in [json.load(open(f'generated/resources/e1m1_{n}.json'))]]" > e1m1.txt
+//   python3 test/lump.py vertexes linedefs sidedefs sectors blockmap > e1m1.txt
 //   gcc test/sound_ref.c -o sound_ref && ./sound_ref < e1m1.txt
 #include <stdio.h>
 #include <stdlib.h>

@@ -7,7 +7,7 @@
 // from 1 like the Monkey C thinker pool hands them out. P_TryMove is a
 // stub that always succeeds. From the repo root:
 //
-//   python3 -c "import json;[print(len(d),*d) for d in [json.load(open(f'generated/resources/e1m1_{n}.json')) for n in ['vertexes','linedefs','sidedefs','sectors','blockmap','things']]+[json.load(open('resources/info/mobjinfo.json'))]]" > mobj.txt
+//   python3 test/lump.py vertexes linedefs sidedefs sectors blockmap things resources/info/mobjinfo.json > mobj.txt
 //   gcc test/mobj_ref.c -o mobj_ref && ./mobj_ref < mobj.txt
 #include <stdio.h>
 #include <stdlib.h>

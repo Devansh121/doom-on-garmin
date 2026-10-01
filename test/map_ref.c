@@ -6,7 +6,7 @@
 // and P_SetThingPosition / P_UnsetThingPosition / P_CrossSpecialLine are
 // no-ops, so only the line clipping is compared. From the repo root:
 //
-//   python3 -c "import json;[print(len(d),*d) for n in ['vertexes','linedefs','sidedefs','sectors','segs','ssectors','nodes','blockmap','reject','things'] for d in [json.load(open(f'generated/resources/e1m1_{n}.json'))]]" > e1m1.txt
+//   python3 test/lump.py vertexes linedefs sidedefs sectors segs ssectors nodes blockmap reject things > e1m1.txt
 //   gcc test/map_ref.c -o map_ref && ./map_ref < e1m1.txt
 #include <stdio.h>
 #include <stdlib.h>
