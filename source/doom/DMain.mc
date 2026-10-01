@@ -222,6 +222,9 @@ module DMain {
             lastticms = ticms;
             lastrenderms = renderms;
             lastcallbacks = callbacks;
+            D_LogFrame();
+            RMain.bspms = 0;
+            RMain.maskedms = 0;
             ticms = 0;
             renderms = 0;
             callbacks = 0;
@@ -229,5 +232,19 @@ module DMain {
             return true;
         }
         return false;
+    }
+
+    // One line per frame in debug builds: the simulator's console, or on
+    // the watch GARMIN/APPS/LOGS/<app>.TXT if that file exists. Release
+    // builds (-r) leave it out.
+    (:debug)
+    function D_LogFrame() as Void {
+        System.println("FRAME F=" + lastframems + " T=" + lastticms + " R=" + lastrenderms
+            + " bsp=" + RMain.bspms + " masked=" + RMain.maskedms + " cb=" + lastcallbacks
+            + " tic=" + DoomStat.gametic);
+    }
+
+    (:release)
+    function D_LogFrame() as Void {
     }
 }

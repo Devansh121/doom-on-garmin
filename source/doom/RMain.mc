@@ -10,6 +10,7 @@
 // logical one.
 
 import Toybox.Lang;
+import Toybox.System;
 
 module RMain {
 
@@ -652,11 +653,22 @@ module RMain {
     // Returns true once the frame is complete. R_DrawPlanes is folded
     // into r_segs; R_DrawMasked runs once the BSP walk is done, out of
     // the same budget.
+    // ms spent in the BSP walk (walls included) and in sprites this
+    // frame, for the frame log
+    var bspms as Number = 0;
+    var maskedms as Number = 0;
+
     function R_RenderPlayerViewStep(budget as Number) as Boolean {
         var limit = RSegs.work + budget;
+        var t0 = System.getTimer();
         if (!RBsp.R_RenderBSPNodeStep(limit)) {
+            bspms += System.getTimer() - t0;
             return false;
         }
-        return RThings.R_DrawMaskedStep(limit);
+        var t1 = System.getTimer();
+        bspms += t1 - t0;
+        var done = RThings.R_DrawMaskedStep(limit);
+        maskedms += System.getTimer() - t1;
+        return done;
     }
 }
