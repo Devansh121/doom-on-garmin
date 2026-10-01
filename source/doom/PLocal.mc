@@ -6,7 +6,6 @@ import Toybox.Lang;
 
 module PLocal {
 
-    // Bounding box coordinate storage.
     const VIEWHEIGHT = 41 * MFixed.FRACUNIT;
 
     const MAPBLOCKUNITS = 128;

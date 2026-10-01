@@ -19,7 +19,7 @@ import Toybox.System;
 module DMain {
 
     // How much rendering one tick may do, in RSegs.work units.
-    const RENDERBUDGET = 40;
+    const RENDERBUDGET = 300;
 
     // startup progress
     var startupstep as Number = 0;
