@@ -98,6 +98,10 @@ module DPlayer {
     // Refired shots are less accurate.
     var players_refire as Array<Number> = [0, 0, 0, 0] as Array<Number>;
 
+    // Kills of other players, frags[MAXPLAYERS] flattened as
+    // [p * MAXPLAYERS + other].
+    var players_frags as Array<Number> = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] as Array<Number>;
+
     // For intermission stats.
     var players_killcount as Array<Number> = [0, 0, 0, 0] as Array<Number>;
     var players_itemcount as Array<Number> = [0, 0, 0, 0] as Array<Number>;
