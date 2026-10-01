@@ -14,6 +14,24 @@ module SSound {
     const sfx_telept = 35;
     const sfx_itmbk = 90;
 
+    // sounds.h sfxenum_t, the ones p_pspr / p_inter use.
+    const sfx_pistol = 1;
+    const sfx_shotgn = 2;
+    const sfx_dshtgn = 4;
+    const sfx_dbopn = 5;
+    const sfx_dbcls = 6;
+    const sfx_dbload = 7;
+    const sfx_bfg = 9;
+    const sfx_sawup = 10;
+    const sfx_sawidl = 11;
+    const sfx_sawful = 12;
+    const sfx_sawhit = 13;
+    const sfx_itemup = 32;
+    const sfx_wpnup = 33;
+    const sfx_punch = 83;
+    const sfx_getpow = 93;
+    // end of p_pspr / p_inter sounds
+
     function S_Start() as Void {
     }
 
