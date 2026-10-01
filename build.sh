@@ -38,7 +38,7 @@ case "${1:-}" in
         "$SDK/bin/monkeydo" bin/DoomIQ.prg "$DEVICE"
         ;;
     install)
-        apps=$(ls -d /run/user/"$(id -u)"/gvfs/mtp:host=091e_*/*/GARMIN/Apps 2>/dev/null | head -1)
+        apps=$(ls -d /run/user/"$(id -u)"/gvfs/mtp:host=091e_*/*/GARMIN/Apps 2>/dev/null | head -1 || true)
         [ -n "$apps" ] || { echo "no Garmin watch mounted over MTP" >&2; exit 1; }
         gio copy bin/DoomIQ.prg "$apps/DoomIQ.prg"
         echo "copied to $apps, unplug the watch to install"
