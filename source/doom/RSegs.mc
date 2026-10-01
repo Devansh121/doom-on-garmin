@@ -190,18 +190,43 @@ module RSegs {
         var px;
         var py;
 
-        for (; rw_x < rw_stopx; rw_x++) {
-            var x = rw_x;
+        // The loop below runs for every column of every wall. Module
+        // variables cost about 45x a local on the watch, so everything it
+        // touches is copied into locals here and written back after.
+        var stopx = rw_stopx;
+        var tf = topfrac;
+        var tstep = topstep;
+        var bf = bottomfrac;
+        var bstep = bottomstep;
+        var scale = rw_scale;
+        var scalestep = rw_scalestep;
+        var ph = pixhigh;
+        var phstep = pixhighstep;
+        var pl = pixlow;
+        var plstep = pixlowstep;
+        var mceil = markceiling;
+        var mfloor = markfloor;
+        var mid_t = midtexture;
+        var top_t = toptexture;
+        var bottom_t = bottomtexture;
+        var textured = segtextured;
+        var wl = walllights;
+        var ceilheighth = ceilheight >> 16;
+        var ceilheightl = ceilheight & 0xffff;
+        var floorheighth = floorheight >> 16;
+        var floorheightl = floorheight & 0xffff;
+
+        for (var x = rw_x; x < stopx; x++) {
 
             // mark floor / ceiling areas
-            var yl = (topfrac + HEIGHTUNIT - 1) >> HEIGHTBITS;
+            var yl = (tf + HEIGHTUNIT - 1) >> HEIGHTBITS;
 
             // no space above wall?
             if (yl < ceilingclip[x] + 1) {
                 yl = ceilingclip[x] + 1;
             }
 
-            if (markceiling) {
+            if (mceil) {
                 var top = ceilingclip[x] + 1;
                 var bottom = yl - 1;
 
@@ -218,7 +243,11 @@ module RSegs {
                         color = flatcolors[ceilbase + fixedcolormap];
                     } else {
                         // R_MapPlane's light for the span's middle row
-                        var index = (((ceilheight.toLong() * yslope[(top + bottom) >> 1]) >> 16).toNumber()) >> RMain.LIGHTZSHIFT;
+                        // FixedMul(planeheight, yslope[y]) in 32-bit halves, as MFixed does
+                        var ys = yslope[(top + bottom) >> 1];
+                        var yl16 = ys & 0xffff;
+                        var yh16 = ys >> 16;
+                        var index = ((((ceilheighth * yh16) << 16) + ceilheighth * yl16 + ceilheightl * yh16 + (((ceilheightl * yl16) >> 16) & 0xffff))) >> RMain.LIGHTZSHIFT;
                         if (index >= RMain.MAXLIGHTZ) {
                             index = RMain.MAXLIGHTZ - 1;
                         }
@@ -239,13 +268,13 @@ module RSegs {
                 }
             }
 
-            var yh = bottomfrac >> HEIGHTBITS;
+            var yh = bf >> HEIGHTBITS;
 
             if (yh >= floorclip[x]) {
                 yh = floorclip[x] - 1;
             }
 
-            if (markfloor) {
+            if (mfloor) {
                 var top = yh + 1;
                 var bottom = floorclip[x] - 1;
                 if (top <= ceilingclip[x]) {
@@ -260,7 +289,11 @@ module RSegs {
                         color = flatcolors[floorbase + fixedcolormap];
                     } else {
                         // R_MapPlane's light for the span's middle row
-                        var index = (((floorheight.toLong() * yslope[(top + bottom) >> 1]) >> 16).toNumber()) >> RMain.LIGHTZSHIFT;
+                        // FixedMul(planeheight, yslope[y]) in 32-bit halves, as MFixed does
+                        var ys = yslope[(top + bottom) >> 1];
+                        var yl16 = ys & 0xffff;
+                        var yh16 = ys >> 16;
+                        var index = ((((floorheighth * yh16) << 16) + floorheighth * yl16 + floorheightl * yh16 + (((floorheightl * yl16) >> 16) & 0xffff))) >> RMain.LIGHTZSHIFT;
                         if (index >= RMain.MAXLIGHTZ) {
                             index = RMain.MAXLIGHTZ - 1;
                         }
@@ -282,20 +315,20 @@ module RSegs {
             }
 
             // texturecolumn and lighting are independent of wall tiers
-            if (segtextured) {
+            if (textured) {
                 // calculate lighting
-                var index = rw_scale >> RMain.LIGHTSCALESHIFT;
+                var index = scale >> RMain.LIGHTSCALESHIFT;
 
                 if (index >= RMain.MAXLIGHTSCALE) {
                     index = RMain.MAXLIGHTSCALE - 1;
                 }
 
-                // dc_colormap = walllights[index];
-                level = RMain.fixedcolormap >= 0 ? RMain.fixedcolormap : scalelight[walllights + index];
+                // dc_colormap = wl[index];
+                level = fixedcolormap >= 0 ? fixedcolormap : scalelight[wl + index];
             }
 
             // draw the wall tiers
-            if (midtexture != 0) {
+            if (mid_t != 0) {
                 // single sided line
                 // (colfunc draws nothing when dc_yh < dc_yl)
                 if (yl <= yh) {
@@ -308,17 +341,17 @@ module RSegs {
                     py = rowy[yl];
                     dc.fillRectangle(px, py, colx[x + 1] - px, rowy[yh + 1] - py);
                     if (dtrace != null) {
-                        dtrace.addAll([0, x, yl, yh, midtexture, level]);
+                        dtrace.addAll([0, x, yl, yh, mid_t, level]);
                     }
                 }
                 ceilingclip[x] = viewheight;
                 floorclip[x] = -1;
             } else {
                 // two sided line
-                if (toptexture != 0) {
+                if (top_t != 0) {
                     // top wall
-                    var mid = pixhigh >> HEIGHTBITS;
-                    pixhigh += pixhighstep;
+                    var mid = ph >> HEIGHTBITS;
+                    ph += phstep;
 
                     if (mid >= floorclip[x]) {
                         mid = floorclip[x] - 1;
@@ -334,7 +367,7 @@ module RSegs {
                         py = rowy[yl];
                         dc.fillRectangle(px, py, colx[x + 1] - px, rowy[mid + 1] - py);
                         if (dtrace != null) {
-                            dtrace.addAll([0, x, yl, mid, toptexture, level]);
+                            dtrace.addAll([0, x, yl, mid, top_t, level]);
                         }
                         ceilingclip[x] = mid;
                     } else {
@@ -342,15 +375,15 @@ module RSegs {
                     }
                 } else {
                     // no top wall
-                    if (markceiling) {
+                    if (mceil) {
                         ceilingclip[x] = yl - 1;
                     }
                 }
 
-                if (bottomtexture != 0) {
+                if (bottom_t != 0) {
                     // bottom wall
-                    var mid = (pixlow + HEIGHTUNIT - 1) >> HEIGHTBITS;
-                    pixlow += pixlowstep;
+                    var mid = (pl + HEIGHTUNIT - 1) >> HEIGHTBITS;
+                    pl += plstep;
 
                     // no space above wall?
                     if (mid <= ceilingclip[x]) {
@@ -367,7 +400,7 @@ module RSegs {
                         py = rowy[mid];
                         dc.fillRectangle(px, py, colx[x + 1] - px, rowy[yh + 1] - py);
                         if (dtrace != null) {
-                            dtrace.addAll([0, x, mid, yh, bottomtexture, level]);
+                            dtrace.addAll([0, x, mid, yh, bottom_t, level]);
                         }
                         floorclip[x] = mid;
                     } else {
@@ -375,7 +408,7 @@ module RSegs {
                     }
                 } else {
                     // no bottom wall
-                    if (markfloor) {
+                    if (mfloor) {
                         floorclip[x] = yh + 1;
                     }
                 }
@@ -387,10 +420,16 @@ module RSegs {
                 // drawn yet)
             }
 
-            rw_scale += rw_scalestep;
-            topfrac += topstep;
-            bottomfrac += bottomstep;
+            scale += scalestep;
+            tf += tstep;
+            bf += bstep;
         }
+        rw_x = stopx;
+        topfrac = tf;
+        bottomfrac = bf;
+        rw_scale = scale;
+        pixhigh = ph;
+        pixlow = pl;
         RDraw.lastcolor = lastcolor;
     }
 
