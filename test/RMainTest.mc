@@ -73,3 +73,16 @@ function testPointInSubsector(logger as Test.Logger) as Boolean {
     }
     return true;
 }
+
+(:test)
+function testInitData(logger as Test.Logger) as Boolean {
+    initRender();
+    // shareware TEXTURE1 has 125 textures, F_START..F_END 56 flats
+    Test.assertEqual(RData.numtextures, 125);
+    Test.assertEqual(RData.numflats, 56);
+    // light level 0 is brightest, 31 is nearly black
+    var c0 = RData.texturecolors[1 * 32];
+    var c31 = RData.texturecolors[1 * 32 + 31];
+    Test.assert(((c0 >> 16) & 0xff) > ((c31 >> 16) & 0xff));
+    return true;
+}

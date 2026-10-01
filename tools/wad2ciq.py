@@ -91,6 +91,89 @@ def flat_num(wad, firstflat, name):
     return i - firstflat
 
 
+def composite_texture(wad, data, ofs, pnames):
+    """Build a texture's texels from its patches the way R_GenerateComposite
+    does. Returns a list of palette indexes, None where nothing is drawn."""
+    width, height = struct.unpack_from("<hh", data, ofs + 12)
+    (patchcount,) = struct.unpack_from("<h", data, ofs + 20)
+    texels = [None] * (width * height)
+    for p in range(patchcount):
+        originx, originy, patchnum = struct.unpack_from("<hhh", data, ofs + 22 + p * 10)
+        patch = wad.lump(wad.num_for_name(pnames[patchnum]))
+        pw, ph = struct.unpack_from("<hh", patch, 0)
+        for col in range(pw):
+            x = originx + col
+            if x < 0 or x >= width:
+                continue
+            (colofs,) = struct.unpack_from("<i", patch, 8 + col * 4)
+            # column_t posts: topdelta, length, unused, pixels..., unused
+            while patch[colofs] != 0xFF:
+                topdelta, length = patch[colofs], patch[colofs + 1]
+                for k in range(length):
+                    y = originy + topdelta + k
+                    if 0 <= y < height:
+                        texels[y * width + x] = patch[colofs + 3 + k]
+                colofs += length + 4
+    return texels
+
+
+def lit_colors(texels, playpal, colormap):
+    """Average 0xRRGGBB of the texels under each of the 32 light levels."""
+    texels = [t for t in texels if t is not None]
+    out = []
+    for level in range(32):
+        cmap = colormap[level * 256:(level + 1) * 256]
+        r = g = b = 0
+        for t in texels:
+            c = cmap[t] * 3
+            r += playpal[c]
+            g += playpal[c + 1]
+            b += playpal[c + 2]
+        n = max(len(texels), 1)
+        out.append((r // n) << 16 | (g // n) << 8 | (b // n))
+    return out
+
+
+def convert_colors(wad):
+    """Flat stand-ins for R_InitTextures / R_InitFlats / R_InitColormaps:
+    the renderer draws every texture and flat as its average color, so
+    bake that color for each COLORMAP light level instead of shipping the
+    graphics."""
+    playpal = wad.lump(wad.num_for_name("PLAYPAL"))[:768]
+    colormap = wad.lump(wad.num_for_name("COLORMAP"))
+
+    pdata = wad.lump(wad.num_for_name("PNAMES"))
+    (npatches,) = struct.unpack_from("<i", pdata, 0)
+    pnames = [name8(pdata[4 + i * 8:12 + i * 8]) for i in range(npatches)]
+
+    tex = []
+    for lumpname in ("TEXTURE1", "TEXTURE2"):
+        i = wad.num_for_name(lumpname)
+        if i < 0:
+            continue
+        data = wad.lump(i)
+        (count,) = struct.unpack_from("<i", data, 0)
+        for t in range(count):
+            (ofs,) = struct.unpack_from("<i", data, 4 + t * 4)
+            tex += lit_colors(composite_texture(wad, data, ofs, pnames), playpal, colormap)
+
+    firstflat = wad.num_for_name("F_START") + 1
+    lastflat = wad.num_for_name("F_END") - 1
+    flats = []
+    for i in range(firstflat, lastflat + 1):
+        data = wad.lump(i)
+        # F1_START/F1_END style markers are empty but still count as flats.
+        flats += lit_colors(list(data[:4096]), playpal, colormap) if len(data) >= 4096 else [0] * 32
+
+    return {
+        "texturecolors": tex,
+        "flatcolors": flats,
+        # G_DoLoadLevel: SKYFLATNAME is F_SKY1, and episode 1 uses SKY1.
+        "skyflatnum": [wad.num_for_name("F_SKY1") - firstflat],
+        "skytexture": [texture_names(wad).index("SKY1")],
+    }
+
+
 def unpack_records(data, fmt):
     size = struct.calcsize(fmt)
     out = []
@@ -168,6 +251,12 @@ def main():
         ids = ", ".join(f"Rez.JsonData.{mapname.lower()}_{l.lower()}" if l.lower() in converted else "null"
                         for l in MAP_LUMPS)
         cases.append(f'        if (name.equals("{mapname}")) {{\n            return [{ids}];\n        }}')
+
+    for name, values in convert_colors(wad).items():
+        with open(os.path.join(resdir, f"{name}.json"), "w") as f:
+            json.dump(values, f, separators=(",", ":"))
+        entries.append(f'    <jsonData id="{name}" filename="{name}.json" />')
+        print(f"{name}: {len(values)} values")
 
     with open(os.path.join(resdir, "maps.xml"), "w") as f:
         f.write("<jsonDataResources>\n" + "\n".join(entries) + "\n</jsonDataResources>\n")

@@ -523,6 +523,8 @@ module RMain {
         var s = initstep;
         initstep++;
         if (s == 0) {
+            RData.R_InitData();
+
             // viewwidth / viewheight / detailLevel are set by the defaults
             R_SetViewSize(11, 1);
             R_ExecuteSetViewSize();
