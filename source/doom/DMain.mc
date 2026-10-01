@@ -125,6 +125,7 @@ module DMain {
             ticrunning = false;
             // rest of G_Ticker's GS_LEVEL case, after P_Ticker
             StStuff.ST_Ticker();
+            HuStuff.HU_Ticker();
             ticsleft--;
             DoomStat.gametic++;
 

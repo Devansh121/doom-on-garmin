@@ -878,6 +878,8 @@ module PMobj {
         if (p == DPlayer.consoleplayer) {
             // wake up the status bar
             StStuff.ST_Start();
+            // wake up the heads up text
+            HuStuff.HU_Start();
         }
     }
 
