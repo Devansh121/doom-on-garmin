@@ -1,0 +1,5 @@
+<jsonDataResources>
+    <jsonData id="finetangent" filename="finetangent.json" />
+    <jsonData id="finesine" filename="finesine.json" />
+    <jsonData id="tantoangle" filename="tantoangle.json" />
+</jsonDataResources>
