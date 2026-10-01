@@ -26,6 +26,17 @@ $SDK/bin/monkeydo bin/DoomIQ.prg fr965  # run in simulator
 
 To sideload, copy `bin/DoomIQ.prg` to `GARMIN/APPS/` on the watch over USB (MTP).
 
+## Controls
+
+| Input | Action |
+|---|---|
+| UP / DOWN (hold) | turn left / right |
+| START (hold) | walk forward |
+| BACK | quit |
+| Touch: left / right third | turn |
+| Touch: middle | walk forward |
+| Touch: bottom edge | walk back |
+
 ## License
 
 GPL-2.0, the license of the [Doom source release](https://github.com/id-Software/DOOM), so Doom code can be reused later. This repo doesn't include any WAD files; supply your own `doom1.wad`.
