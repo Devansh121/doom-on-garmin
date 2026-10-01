@@ -124,42 +124,139 @@ module PTick {
         currentthinker = thinkers_next[0];
     }
 
+    // Most thinkers are mobjs standing still (decorations, items, idle
+    // monsters), and on the watch every call and every module variable
+    // read costs tens of microseconds. For those P_MobjThinker only counts
+    // the tics down, so P_RunIdleMobjs does that for a run of them in one
+    // call, with the mobj arrays in locals, and P_MobjThinker is called
+    // only for the rest. The order, the budget and what each thinker does
+    // are as before.
+    //
+    // Every thinker's call chain starts in this frame and the VM stack
+    // only has room for a couple of hundred slots, which is why the arrays
+    // live in P_RunIdleMobjs, and why P_SetMobjState and P_MobjThinker are
+    // called from here and not from there.
+    var idlestatechange as Boolean = false;
+
     function P_RunThinkersStep(budget as Number) as Boolean {
         var next = thinkers_next;
-        var prev = thinkers_prev;
         var funcs = thinkers_function;
         var t = currentthinker;
+        var f;
 
         while (t != 0) {
             if (budget <= 0) {
                 currentthinker = t;
                 return false;
             }
-            budget--;
 
-            var f = funcs[t];
-            var after;
-            if (f == TF_REMOVED) {
+            f = funcs[t];
+            if (f == TF_MOBJ) {
+                // idle mobjs from t on
+                budgetleft = budget;
+                f = P_RunIdleMobjs(t);
+                budget = budgetleft;
+                if (idlestatechange) {
+                    // f counted down to 0: P_MobjThinker's
+                    // you can cycle through multiple states in a tic
+                    PMobj.P_SetMobjState(f, Info.states[PMobj.mobjs_state[f] * Info.ST_SIZE + Info.ST_NEXTSTATE]);
+                    t = next[f];
+                    continue;
+                }
+                if (f != t) {
+                    // ran up to f, which is a thinker that still needs
+                    // its turn (or 0, or the budget ran out)
+                    t = f;
+                    continue;
+                }
+                // t has to move or respawn
+                budget--;
+                PMobj.P_MobjThinker(t);
+            } else if (f == TF_REMOVED) {
+                budget--;
                 // time to remove it
-                after = next[t];
-                prev[after] = prev[t];
-                next[prev[t]] = after;
+                f = next[t];
+                thinkers_prev[f] = thinkers_prev[t];
+                next[thinkers_prev[t]] = f;
                 thinkers_data[t] = null;
                 freelist[numfree] = t;
                 numfree++;
+                t = f;
+                continue;
             } else {
+                budget--;
                 if (f != TF_NULL) {
                     P_Think(f, t);
                 }
-                // read after the call, like the C code, so thinkers
-                // added at the end of the list during it still run
-                after = next[t];
             }
-            t = after;
+            // read after the call, like the C code, so thinkers
+            // added at the end of the list during it still run
+            t = next[t];
         }
         currentthinker = 0;
         budgetleft = budget;
         return true;
+    }
+
+    // Runs P_MobjThinker for the mobjs from t on that don't move: no
+    // momentum, not a skull in flight and on their floor, where it skips
+    // both movement functions and only counts the tics down (or, for
+    // tics == -1, does nothing unless a monster may respawn). Stops at the first thinker that isn't such a mobj
+    // and returns it without running it (t itself if it's the first), or
+    // at one whose tics just ran out, which it returns with
+    // idlestatechange set so the caller does P_SetMobjState. Takes the
+    // budget from budgetleft and leaves what's left there; returns 0 at
+    // the end of the list.
+    function P_RunIdleMobjs(t as Number) as Number {
+        var next = thinkers_next;
+        var funcs = thinkers_function;
+        var momx = PMobj.mobjs_momx;
+        var momy = PMobj.mobjs_momy;
+        var momz = PMobj.mobjs_momz;
+        var mflags = PMobj.mobjs_flags;
+        var mz = PMobj.mobjs_z;
+        var floorz = PMobj.mobjs_floorz;
+        var tics = PMobj.mobjs_tics;
+        var respawn = GGame.respawnmonsters;
+        var budget = budgetleft;
+        var tc;
+
+        idlestatechange = false;
+        while (t != 0 && budget > 0 && funcs[t] == TF_MOBJ) {
+            if (momx[t] != 0
+                || momy[t] != 0
+                || (mflags[t] & PMobj.MF_SKULLFLY) != 0
+                || mz[t] != floorz[t]
+                || momz[t] != 0) {
+                break;
+            }
+
+            tc = tics[t];
+            if (tc == -1) {
+                // P_MobjThinker's nightmare respawn check, which returns
+                // straight away unless it's a monster and respawnmonsters
+                // is on
+                if (respawn && (mflags[t] & PMobj.MF_COUNTKILL) != 0) {
+                    break;
+                }
+                budget--;
+                t = next[t];
+                continue;
+            }
+            budget--;
+
+            // cycle through states,
+            // calling action functions at transitions
+            tc--;
+            tics[t] = tc;
+            if (tc == 0) {
+                idlestatechange = true;
+                break;
+            }
+            t = next[t];
+        }
+        budgetleft = budget;
+        return t;
     }
 
     function P_Think(f as Number, t as Number) as Void {
