@@ -67,7 +67,7 @@ module DMain {
         }
         if (s == 2) {
             if (PSetup.P_SetupLevelStep()) {
-                System.println("P_SetupLevel: E1M1 done, " + System.getSystemStats().usedMemory + " bytes used");
+                System.println("P_SetupLevel: E" + DoomStat.gameepisode + "M" + DoomStat.gamemap + " done, " + System.getSystemStats().usedMemory + " bytes used");
                 startupstep++;
                 started = true;
                 fpsstart = System.getTimer();
@@ -132,6 +132,15 @@ module DMain {
                 startupstep = 2;
                 started = false;
                 return false;
+            }
+
+            // G_Ticker's gameaction: a level was finished
+            if (GGame.gameaction == GGame.ga_completed) {
+                if (GGame.G_DoCompleted()) {
+                    startupstep = 2;
+                    started = false;
+                    return false;
+                }
             }
         }
         PTick.budgetleft = budget;

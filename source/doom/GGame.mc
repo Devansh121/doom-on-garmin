@@ -140,13 +140,115 @@ module GGame {
     //
     // G_ExitLevel
     //
-    // Not ported yet (no intermission); stub for the p_spec family.
+    // gameaction_t; only the ones the watch needs.
+    const ga_nothing = 0;
+    const ga_completed = 1;
+    const ga_victory = 2;
+    const ga_worlddone = 3;
+
+    var gameaction as Number = ga_nothing;
+    var secretexit as Boolean = false;
+
+    // wminfo.next: the next map, 0 biased
+    var wminfo_next as Number = 0;
+
     function G_ExitLevel() as Void {
+        secretexit = false;
+        gameaction = ga_completed;
     }
 
     // Here's for the german edition.
-    // Not ported yet; stub for the p_spec family.
     function G_SecretExitLevel() as Void {
+        // IF NO WOLF3D LEVELS, NO SECRET EXIT!
+        // (only matters for commercial)
+        secretexit = true;
+        gameaction = ga_completed;
+    }
+
+    //
+    // G_PlayerFinishLevel
+    // Call when a player completes a level.
+    //
+    function G_PlayerFinishLevel(player as Number) as Void {
+        for (var i = 0; i < DoomDef.NUMPOWERS; i++) {
+            DPlayer.players_powers[player * DoomDef.NUMPOWERS + i] = 0;
+        }
+        for (var i = 0; i < DoomDef.NUMCARDS; i++) {
+            DPlayer.players_cards[player * DoomDef.NUMCARDS + i] = 0;
+        }
+        var mo = DPlayer.players_mo[player];
+        PMobj.mobjs_flags[mo] &= ~PMobj.MF_SHADOW;  // cancel invisibility
+        DPlayer.players_extralight[player] = 0;     // cancel gun flashes
+        DPlayer.players_fixedcolormap[player] = 0;  // cancel ir gogles
+        DPlayer.players_damagecount[player] = 0;    // no palette changes
+        DPlayer.players_bonuscount[player] = 0;
+    }
+
+    //
+    // G_DoCompleted
+    //
+    // There's no intermission screen (wi_stuff.c) yet, so this goes
+    // straight on to G_DoWorldDone. Returns false on ga_victory (E1M8
+    // done), which needs the finale.
+    //
+    function G_DoCompleted() as Boolean {
+        gameaction = ga_nothing;
+
+        for (var i = 0; i < DoomStat.MAXPLAYERS; i++) {
+            if (DPlayer.playeringame[i]) {
+                G_PlayerFinishLevel(i);  // take away cards and stuff
+            }
+        }
+
+        // (gamemode is never commercial here)
+        if (DoomStat.gamemap == 8) {
+            // victory
+            gameaction = ga_victory;
+            return false;
+        }
+
+        if (DoomStat.gamemap == 9) {
+            // exit secret level
+            for (var i = 0; i < DoomStat.MAXPLAYERS; i++) {
+                DPlayer.players_didsecret[i] = true;
+            }
+        }
+
+        if (secretexit) {
+            wminfo_next = 8;  // go to secret level
+        } else if (DoomStat.gamemap == 9) {
+            // returning from secret level
+            switch (DoomStat.gameepisode) {
+                case 1:
+                    wminfo_next = 3;
+                    break;
+                case 2:
+                    wminfo_next = 5;
+                    break;
+                case 3:
+                    wminfo_next = 6;
+                    break;
+                case 4:
+                    wminfo_next = 2;
+                    break;
+            }
+        } else {
+            wminfo_next = DoomStat.gamemap;  // go to next level
+        }
+
+        // WI_Start would run here; G_WorldDone when it's finished.
+        G_DoWorldDone();
+        return true;
+    }
+
+    //
+    // G_DoWorldDone
+    //
+    function G_DoWorldDone() as Void {
+        gamestate = DoomDef.GS_LEVEL;
+        DoomStat.gamemap = wminfo_next + 1;
+        G_DoLoadLevel();
+        gameaction = ga_nothing;
     }
 
     //

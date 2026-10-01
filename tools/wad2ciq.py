@@ -243,7 +243,7 @@ def convert_map(wad, mapname, textures, firstflat):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("wad", help="path to doom1.wad")
-    ap.add_argument("--maps", nargs="+", default=["E1M1"])
+    ap.add_argument("--maps", nargs="+", default=[f"E1M{m}" for m in range(1, 10)])
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "generated"))
     args = ap.parse_args()
 
