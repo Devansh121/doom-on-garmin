@@ -137,6 +137,18 @@ module GGame {
     }
 
     //
+    // G_ExitLevel
+    //
+    // Not ported yet (no intermission); stub for the p_spec family.
+    function G_ExitLevel() as Void {
+    }
+
+    // Here's for the german edition.
+    // Not ported yet; stub for the p_spec family.
+    function G_SecretExitLevel() as Void {
+    }
+
+    //
     // G_InitNew
     // Can be called by the startup code or the menu task,
     // consoleplayer, displayplayer, playeringame[] should be set.
