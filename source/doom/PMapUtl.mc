@@ -6,12 +6,6 @@
 //	BLOCKMAP Iterator functions,
 //	and some PIT_* functions to use for iteration.
 //
-// Only the parts that need nothing but map geometry are here.
-// P_UnsetThingPosition, P_SetThingPosition, P_BlockThingsIterator, the
-// intercepts list, PIT_AddLineIntercepts, PIT_AddThingIntercepts,
-// P_TraverseIntercepts and P_PathTraverse all need mobj_t, so they come
-// with p_mobj.
-//
 // line_t* arguments are line numbers into the PSetup lines_* arrays.
 // A divline_t {x, y, dx, dy} is a 4 element Array<Number>, indexed with
 // the DL_* constants below.
@@ -410,5 +404,353 @@ module PMapUtl {
                 PMobj.mobjs_bprev[thing] = -1;
             }
         }
+    }
+
+    //
+    // P_BlockThingsIterator
+    //
+    // func is a Method taking the mobj number and returning a Boolean.
+    //
+    function P_BlockThingsIterator(x as Number, y as Number, func as Method) as Boolean {
+        if (x < 0
+            || y < 0
+            || x >= PSetup.bmapwidth
+            || y >= PSetup.bmapheight) {
+            return true;
+        }
+
+        var bnext = PMobj.mobjs_bnext;
+        for (var mobj = PSetup.blocklinks[y * PSetup.bmapwidth + x];
+             mobj != -1;
+             mobj = bnext[mobj]) {
+            if (!(func.invoke(mobj) as Boolean)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    //
+    // INTERCEPT ROUTINES
+    //
+    // intercept_t intercepts[MAXINTERCEPTS] as parallel arrays: frac,
+    // isaline, and d, which is a line number when isaline and a mobj
+    // number otherwise. intercept_p is the count of entries in use.
+    //
+    var intercepts_frac as Array<Number> = new [PLocal.MAXINTERCEPTS] as Array<Number>;
+    var intercepts_isaline as Array<Boolean> = new [PLocal.MAXINTERCEPTS] as Array<Boolean>;
+    var intercepts_d as Array<Number> = new [PLocal.MAXINTERCEPTS] as Array<Number>;
+    var intercept_p as Number = 0;
+
+    var trace as Array<Number> = [0, 0, 0, 0] as Array<Number>;
+    var earlyout as Boolean = false;
+    var ptflags as Number = 0;
+
+    // The C code writes past the end of intercepts[] when a trace
+    // crosses more than MAXINTERCEPTS things and lines (the famous
+    // intercepts overflow). Monkey C would throw instead, so extra
+    // intercepts are dropped.
+    function P_AddIntercept(frac as Number, isaline as Boolean, d as Number) as Void {
+        if (intercept_p >= PLocal.MAXINTERCEPTS) {
+            return;
+        }
+        intercepts_frac[intercept_p] = frac;
+        intercepts_isaline[intercept_p] = isaline;
+        intercepts_d[intercept_p] = d;
+        intercept_p++;
+    }
+
+    //
+    // PIT_AddLineIntercepts.
+    // Looks for lines in the given block
+    // that intercept the given trace
+    // to add to the intercepts list.
+    //
+    // A line is crossed if its endpoints
+    // are on opposite sides of the trace.
+    // Returns true if earlyout and a solid line hit.
+    //
+    function PIT_AddLineIntercepts(ld as Number) as Boolean {
+        var s1;
+        var s2;
+        var frac;
+        var dl = [0, 0, 0, 0] as Array<Number>;
+        var v1 = PSetup.lines_v1[ld];
+        var v2 = PSetup.lines_v2[ld];
+
+        // avoid precision problems with two routines
+        if (trace[DL_DX] > MFixed.FRACUNIT * 16
+            || trace[DL_DY] > MFixed.FRACUNIT * 16
+            || trace[DL_DX] < -MFixed.FRACUNIT * 16
+            || trace[DL_DY] < -MFixed.FRACUNIT * 16) {
+            s1 = P_PointOnDivlineSide(PSetup.vertexes_x[v1], PSetup.vertexes_y[v1], trace);
+            s2 = P_PointOnDivlineSide(PSetup.vertexes_x[v2], PSetup.vertexes_y[v2], trace);
+        } else {
+            s1 = P_PointOnLineSide(trace[DL_X], trace[DL_Y], ld);
+            s2 = P_PointOnLineSide(trace[DL_X] + trace[DL_DX], trace[DL_Y] + trace[DL_DY], ld);
+        }
+
+        if (s1 == s2) {
+            return true;    // line isn't crossed
+        }
+
+        // hit the line
+        P_MakeDivline(ld, dl);
+        frac = P_InterceptVector(trace, dl);
+
+        if (frac < 0) {
+            return true;    // behind source
+        }
+
+        // try to early out the check
+        if (earlyout
+            && frac < MFixed.FRACUNIT
+            && PSetup.lines_backsector[ld] == -1) {
+            return false;   // stop checking
+        }
+
+        P_AddIntercept(frac, true, ld);
+
+        return true;    // continue
+    }
+
+    //
+    // PIT_AddThingIntercepts
+    //
+    function PIT_AddThingIntercepts(thing as Number) as Boolean {
+        var x1;
+        var y1;
+        var x2;
+        var y2;
+
+        var s1;
+        var s2;
+
+        var tracepositive;
+
+        var dl = [0, 0, 0, 0] as Array<Number>;
+
+        var frac;
+
+        var tx = PMobj.mobjs_x[thing];
+        var ty = PMobj.mobjs_y[thing];
+        var radius = PMobj.mobjs_radius[thing];
+
+        tracepositive = (trace[DL_DX] ^ trace[DL_DY]) > 0;
+
+        // check a corner to corner crossection for hit
+        if (tracepositive) {
+            x1 = tx - radius;
+            y1 = ty + radius;
+
+            x2 = tx + radius;
+            y2 = ty - radius;
+        } else {
+            x1 = tx - radius;
+            y1 = ty - radius;
+
+            x2 = tx + radius;
+            y2 = ty + radius;
+        }
+
+        s1 = P_PointOnDivlineSide(x1, y1, trace);
+        s2 = P_PointOnDivlineSide(x2, y2, trace);
+
+        if (s1 == s2) {
+            return true;    // line isn't crossed
+        }
+
+        dl[DL_X] = x1;
+        dl[DL_Y] = y1;
+        dl[DL_DX] = x2 - x1;
+        dl[DL_DY] = y2 - y1;
+
+        frac = P_InterceptVector(trace, dl);
+
+        if (frac < 0) {
+            return true;    // behind source
+        }
+
+        P_AddIntercept(frac, false, thing);
+
+        return true;    // keep going
+    }
+
+    //
+    // P_TraverseIntercepts
+    // Returns true if the traverser function returns true
+    // for all lines.
+    //
+    // func is a Method taking the intercept index and returning a
+    // Boolean.
+    //
+    function P_TraverseIntercepts(func as Method, maxfrac as Number) as Boolean {
+        var count;
+        var dist;
+        var scan;
+        var inp;
+        var fracs = intercepts_frac;
+        var end = intercept_p;
+
+        count = end;
+
+        inp = 0;    // shut up compiler warning
+
+        while (count > 0) {
+            count--;
+            dist = DoomType.MAXINT;
+            for (scan = 0; scan < end; scan++) {
+                if (fracs[scan] < dist) {
+                    dist = fracs[scan];
+                    inp = scan;
+                }
+            }
+
+            if (dist > maxfrac) {
+                return true;    // checked everything in range
+            }
+
+            // (the #if 0 UNUSED block is left out)
+
+            if (!(func.invoke(inp) as Boolean)) {
+                return false;   // don't bother going farther
+            }
+
+            fracs[inp] = DoomType.MAXINT;
+        }
+
+        return true;    // everything was traversed
+    }
+
+    //
+    // P_PathTraverse
+    // Traces a line from x1,y1 to x2,y2,
+    // calling the traverser function for each.
+    // Returns true if the traverser function returns true
+    // for all lines.
+    //
+    // trav is a Method taking the intercept index. Visits up to 64
+    // blocks and sorts up to MAXINTERCEPTS intercepts, so a long trace
+    // through a busy area may need splitting for the watchdog.
+    //
+    function P_PathTraverse(x1 as Number, y1 as Number, x2 as Number, y2 as Number,
+                            flags as Number, trav as Method) as Boolean {
+        var xt1;
+        var yt1;
+        var xt2;
+        var yt2;
+
+        var xstep;
+        var ystep;
+
+        var partial;
+
+        var xintercept;
+        var yintercept;
+
+        var mapx;
+        var mapy;
+
+        var mapxstep;
+        var mapystep;
+
+        var count;
+
+        earlyout = (flags & PLocal.PT_EARLYOUT) != 0;
+
+        RMain.validcount++;
+        intercept_p = 0;
+
+        if (((x1 - PSetup.bmaporgx) & (PLocal.MAPBLOCKSIZE - 1)) == 0) {
+            x1 += MFixed.FRACUNIT;  // don't side exactly on a line
+        }
+
+        if (((y1 - PSetup.bmaporgy) & (PLocal.MAPBLOCKSIZE - 1)) == 0) {
+            y1 += MFixed.FRACUNIT;  // don't side exactly on a line
+        }
+
+        trace[DL_X] = x1;
+        trace[DL_Y] = y1;
+        trace[DL_DX] = x2 - x1;
+        trace[DL_DY] = y2 - y1;
+
+        x1 -= PSetup.bmaporgx;
+        y1 -= PSetup.bmaporgy;
+        xt1 = x1 >> PLocal.MAPBLOCKSHIFT;
+        yt1 = y1 >> PLocal.MAPBLOCKSHIFT;
+
+        x2 -= PSetup.bmaporgx;
+        y2 -= PSetup.bmaporgy;
+        xt2 = x2 >> PLocal.MAPBLOCKSHIFT;
+        yt2 = y2 >> PLocal.MAPBLOCKSHIFT;
+
+        if (xt2 > xt1) {
+            mapxstep = 1;
+            partial = MFixed.FRACUNIT - ((x1 >> PLocal.MAPBTOFRAC) & (MFixed.FRACUNIT - 1));
+            ystep = MFixed.FixedDiv(y2 - y1, MFixed.abs(x2 - x1));
+        } else if (xt2 < xt1) {
+            mapxstep = -1;
+            partial = (x1 >> PLocal.MAPBTOFRAC) & (MFixed.FRACUNIT - 1);
+            ystep = MFixed.FixedDiv(y2 - y1, MFixed.abs(x2 - x1));
+        } else {
+            mapxstep = 0;
+            partial = MFixed.FRACUNIT;
+            ystep = 256 * MFixed.FRACUNIT;
+        }
+
+        yintercept = (y1 >> PLocal.MAPBTOFRAC) + MFixed.FixedMul(partial, ystep);
+
+        if (yt2 > yt1) {
+            mapystep = 1;
+            partial = MFixed.FRACUNIT - ((y1 >> PLocal.MAPBTOFRAC) & (MFixed.FRACUNIT - 1));
+            xstep = MFixed.FixedDiv(x2 - x1, MFixed.abs(y2 - y1));
+        } else if (yt2 < yt1) {
+            mapystep = -1;
+            partial = (y1 >> PLocal.MAPBTOFRAC) & (MFixed.FRACUNIT - 1);
+            xstep = MFixed.FixedDiv(x2 - x1, MFixed.abs(y2 - y1));
+        } else {
+            mapystep = 0;
+            partial = MFixed.FRACUNIT;
+            xstep = 256 * MFixed.FRACUNIT;
+        }
+        xintercept = (x1 >> PLocal.MAPBTOFRAC) + MFixed.FixedMul(partial, xstep);
+
+        // Step through map blocks.
+        // Count is present to prevent a round off error
+        // from skipping the break.
+        mapx = xt1;
+        mapy = yt1;
+
+        var addlines = new Lang.Method(PMapUtl, :PIT_AddLineIntercepts);
+        var addthings = new Lang.Method(PMapUtl, :PIT_AddThingIntercepts);
+
+        for (count = 0; count < 64; count++) {
+            if ((flags & PLocal.PT_ADDLINES) != 0) {
+                if (!P_BlockLinesIterator(mapx, mapy, addlines)) {
+                    return false;   // early out
+                }
+            }
+
+            if ((flags & PLocal.PT_ADDTHINGS) != 0) {
+                if (!P_BlockThingsIterator(mapx, mapy, addthings)) {
+                    return false;   // early out
+                }
+            }
+
+            if (mapx == xt2
+                && mapy == yt2) {
+                break;
+            }
+
+            if ((yintercept >> MFixed.FRACBITS) == mapy) {
+                yintercept += ystep;
+                mapx += mapxstep;
+            } else if ((xintercept >> MFixed.FRACBITS) == mapx) {
+                xintercept += xstep;
+                mapy += mapystep;
+            }
+        }
+        // go through the sorted list
+        return P_TraverseIntercepts(trav, MFixed.FRACUNIT);
     }
 }
