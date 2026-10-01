@@ -1,14 +1,14 @@
 // Expected values come from the original p_map.c PIT_CheckLine,
 // P_CheckPosition and P_TryMove run on the same E1M1 data, see
-// test/map_ref.c. Things aren't iterated on either side (the C stubs
-// P_BlockThingsIterator), so only line clipping is compared.
+// test/map_ref.c. The C stubs P_BlockThingsIterator, so here the map's
+// things are taken out of the blockmap and only the mobj being moved is
+// linked in: only line clipping is compared.
 
 import Toybox.Lang;
 import Toybox.Test;
 
-// Puts mo on the floor at x, y.
+// Links mo into the map on the floor at x, y.
 function placeMobj(mo as Number, x as Number, y as Number) as Void {
-    PMapUtl.P_UnsetThingPosition(mo);
     PMobj.mobjs_x[mo] = x;
     PMobj.mobjs_y[mo] = y;
     PMapUtl.P_SetThingPosition(mo);
@@ -35,6 +35,12 @@ function testCheckPositionTryMove(logger as Test.Logger) as Boolean {
     var player = PMobj.P_SpawnMobj(0, 0, PMobj.ONFLOORZ, Info.MT_PLAYER);
     PMobj.mobjs_player[player] = 0;
     var monster = PMobj.P_SpawnMobj(0, 0, PMobj.ONFLOORZ, Info.MT_POSSESSED);
+    PMapUtl.P_UnsetThingPosition(player);
+    PMapUtl.P_UnsetThingPosition(monster);
+    var blocklinks = PSetup.blocklinks;
+    for (var i = 0; i < blocklinks.size(); i++) {
+        blocklinks[i] = -1;
+    }
 
     var moves = [
         // monster?, x, y, newx, newy, P_CheckPosition, P_TryMove, floatok,
@@ -155,6 +161,7 @@ function testCheckPositionTryMove(logger as Test.Logger) as Boolean {
         } else {
             Test.assertEqualMessage(PMobj.mobjs_x[mo], c[1], "x unchanged" + msg);
         }
+        PMapUtl.P_UnsetThingPosition(mo);
     }
     return true;
 }
