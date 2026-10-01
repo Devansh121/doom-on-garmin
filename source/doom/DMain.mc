@@ -123,6 +123,8 @@ module DMain {
             }
             budget = PTick.budgetleft;
             ticrunning = false;
+            // rest of G_Ticker's GS_LEVEL case, after P_Ticker
+            StStuff.ST_Ticker();
             ticsleft--;
             DoomStat.gametic++;
 

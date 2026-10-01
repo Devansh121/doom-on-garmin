@@ -877,8 +877,7 @@ module PMobj {
 
         if (p == DPlayer.consoleplayer) {
             // wake up the status bar
-            // wake up the heads up text
-            // (ST_Start and HU_Start: there's no status bar or HUD yet)
+            StStuff.ST_Start();
         }
     }
 
