@@ -12,6 +12,11 @@ function initRender() as Void {
     RMain.initstep = 0;
     while (!RMain.R_InitStep()) {
     }
+    // P_Init's R_InitSprites, since R_Subsector adds sprites
+    if (Info.mobjinfo.size() == 0) {
+        Info.Info_Init();
+    }
+    RThings.R_InitSprites(Info.sprnames);
 }
 
 (:test)

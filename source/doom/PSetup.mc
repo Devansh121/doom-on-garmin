@@ -676,7 +676,7 @@ module PSetup {
     function P_Init() as Void {
         PSwitch.P_InitSwitchList();
         PSpec.P_InitPicAnims();
-        // R_InitSprites: sprites aren't drawn yet.
+        RThings.R_InitSprites(Info.sprnames);
     }
 
     // Runs fn over the next count records of the current step, moving on

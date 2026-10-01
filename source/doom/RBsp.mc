@@ -454,7 +454,7 @@ module RBsp {
             RPlane.ceilingplane = -1;
         }
 
-        // R_AddSprites (frontsector) comes with r_things.
+        RThings.R_AddSprites(frontsector);
 
         while (count > 0) {
             count--;

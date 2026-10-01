@@ -113,6 +113,9 @@ module RMain {
     // tests set 11, full screen, which the expected values assume.
     var screenblocks as Number = 10;
 
+    // the player number whose view is drawn
+    var viewplayer as Number = 0;
+
     var setsizeneeded as Boolean = false;
     var setblocks as Number = 0;
     var setdetail as Number = 0;
@@ -481,6 +484,16 @@ module RMain {
         // colfunc/spanfunc are always RDraw.R_DrawColumn, which already
         // sizes its columns from viewwidth.
         RDraw.R_InitBuffer(viewwidth, viewheight);
+
+        // psprite scales
+        RThings.pspritescale = MFixed.FRACUNIT * viewwidth / SCREENWIDTH;
+        RThings.pspriteiscale = MFixed.FRACUNIT * SCREENWIDTH / viewwidth;
+
+        // thing clipping
+        // (screenheightarray is the start of RSegs.openings, value + 1)
+        for (var i = 0; i < viewwidth; i++) {
+            RSegs.openings[RSegs.SCREENHEIGHTARRAY + i] = viewheight + 1;
+        }
     }
 
     function R_ExecuteSetViewSize_Tables() as Void {
@@ -614,6 +627,7 @@ module RMain {
     //
     function R_RenderPlayerView(player as Number) as Void {
         // R_SetupFrame (player)
+        viewplayer = player;
         var mo = DPlayer.players_mo[player];
         R_SetupFrame(PMobj.mobjs_x[mo], PMobj.mobjs_y[mo], DPlayer.players_viewz[player], PMobj.mobjs_angle[mo]);
         extralight = DPlayer.players_extralight[player];
@@ -624,6 +638,7 @@ module RMain {
         RBsp.R_ClearClipSegs();
         RBsp.R_ClearDrawSegs();
         RPlane.R_ClearPlanes();
+        RThings.R_ClearSprites();
         RSegs.work = 0;
 
         // The head node is the last node output.
@@ -631,8 +646,13 @@ module RMain {
     }
 
     // Returns true once the frame is complete. R_DrawPlanes is folded
-    // into r_segs, and R_DrawMasked comes with r_things.
+    // into r_segs; R_DrawMasked runs once the BSP walk is done, out of
+    // the same budget.
     function R_RenderPlayerViewStep(budget as Number) as Boolean {
-        return RBsp.R_RenderBSPNodeStep(RSegs.work + budget);
+        var limit = RSegs.work + budget;
+        if (!RBsp.R_RenderBSPNodeStep(limit)) {
+            return false;
+        }
+        return RThings.R_DrawMaskedStep(limit);
     }
 }
