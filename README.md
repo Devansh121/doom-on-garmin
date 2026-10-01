@@ -12,19 +12,18 @@ Connect IQ only runs Monkey C bytecode, so no native C code and no custom firmwa
 
 ## Build
 
-Requires the [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) and the `fr965` device files. Install the device files via the SDK Manager, which needs a Garmin login.
+You'll need the [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) with the `fr965` device files (from the SDK Manager, which needs a Garmin login), Python 3, and the shareware `doom1.wad` (v1.9, md5 `f0cefca49926d00903cf57551d901abe`).
 
 ```sh
-SDK=~/.Garmin/ConnectIQ/Sdks/connectiq-sdk-lin-9.2.0
-# one-time developer key (keep it out of the repo)
+# one-time developer key, kept outside the repo
 openssl genrsa -out key.pem 4096 && openssl pkcs8 -topk8 -inform PEM -outform DER -in key.pem -out ~/.Garmin/developer_key.der -nocrypt && rm key.pem
 
-$SDK/bin/monkeyc -d fr965 -f monkey.jungle -o bin/DoomIQ.prg -y ~/.Garmin/developer_key.der
-$SDK/bin/connectiq &                    # simulator
-$SDK/bin/monkeydo bin/DoomIQ.prg fr965  # run in simulator
+DOOM_WAD=path/to/doom1.wad ./build.sh           # bin/DoomIQ.prg
+DOOM_WAD=path/to/doom1.wad ./build.sh run       # run in the simulator
+DOOM_WAD=path/to/doom1.wad ./build.sh install   # copy to a watch plugged in over USB
 ```
 
-To sideload, copy `bin/DoomIQ.prg` to `GARMIN/APPS/` on the watch over USB (MTP).
+`build.sh` runs `tools/wad2ciq.py` first, which unpacks the map lumps into `resources/generated/`. Connect IQ apps can't read files, so the WAD data is built into the app. The trig tables in `resources/tables/` were extracted from the original `tables.c` with `tools/tables2ciq.py`.
 
 ## Controls
 
