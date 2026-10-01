@@ -5,7 +5,9 @@
 // Textures are stubbed: R_GetColumn only remembers which texture was
 // asked for, and colfunc records [0, x, yl, yh, texture, colormap level].
 // Plane marks record [1 or 2, x, top, bottom, picnum, height] where the C
-// code writes plane->top/bottom. Sprite clip bookkeeping is left out.
+// code writes plane->top/bottom. The drawsegs and their sprite clip
+// lists (openings) are kept for rthings_ref.c, which includes this file
+// with NO_MAIN defined.
 //
 //   python3 test/dump_e1m1.py > e1m1.txt
 //   gcc -I ~/src/DOOM/linuxdoom-1.10 rsegs_ref.c ~/src/DOOM/linuxdoom-1.10/tables.c -o rsegs_ref
@@ -13,6 +15,7 @@
 #define HAVE_STOREWALLRANGE
 void R_Subsector_planes(void);
 #define SUBSECTOR_HOOK R_Subsector_planes
+#include <string.h>
 #include "rbsp_ref.c"
 
 #define LIGHTLEVELS 16
@@ -44,6 +47,26 @@ visplane_t* lastvisplane;
 visplane_t* floorplane;
 visplane_t* ceilingplane;
 short floorclip[SCREENWIDTH], ceilingclip[SCREENWIDTH];
+
+// r_defs.h / r_plane.c / r_things.c: drawsegs and sprite clip lists
+#define SIL_NONE 0
+#define SIL_BOTTOM 1
+#define SIL_TOP 2
+#define SIL_BOTH 3
+#define MAXDRAWSEGS 256
+#define MAXOPENINGS SCREENWIDTH*64
+typedef struct {
+    seg_t* curline; int x1, x2; fixed_t scale1, scale2, scalestep;
+    int silhouette; fixed_t bsilheight, tsilheight;
+    short* sprtopclip; short* sprbottomclip; short* maskedtexturecol;
+} drawseg_t;
+drawseg_t drawsegs[MAXDRAWSEGS];
+drawseg_t* ds_p;
+short openings[MAXOPENINGS];
+short* lastopening;
+short negonearray[SCREENWIDTH];
+short screenheightarray[SCREENWIDTH];
+short* maskedtexturecol;
 
 // trace
 long long tracehash; int tracen;
@@ -79,6 +102,10 @@ visplane_t* R_FindPlane(fixed_t height, int picnum, int lightlevel) {
     return check;
 }
 
+#ifdef ADDSPRITES_HOOK
+void ADDSPRITES_HOOK(sector_t* sec);
+#endif
+
 void R_Subsector_planes(void) {
     if (frontsector->floorheight < viewz)
         floorplane = R_FindPlane(frontsector->floorheight, frontsector->floorpic, frontsector->lightlevel);
@@ -86,6 +113,9 @@ void R_Subsector_planes(void) {
     if (frontsector->ceilingheight > viewz || frontsector->ceilingpic == skyflatnum)
         ceilingplane = R_FindPlane(frontsector->ceilingheight, frontsector->ceilingpic, frontsector->lightlevel);
     else ceilingplane = NULL;
+#ifdef ADDSPRITES_HOOK
+    ADDSPRITES_HOOK(frontsector);
+#endif
 }
 
 // ---- r_segs.c ----
@@ -176,6 +206,7 @@ void R_RenderSegLoop(void) {
 
 void R_StoreWallRange(int start, int stop) {
     fixed_t hyp, sineval; angle_t distangle, offsetangle; fixed_t vtop; int lightnum;
+    if (ds_p == &drawsegs[MAXDRAWSEGS]) return;
     // the dump keeps the seg's sidedef textures on the seg itself
     struct { int midtexture, toptexture, bottomtexture; } side = {
         segsides[curline - segs].midtexture, curline->toptexture, curline->bottomtexture }, *sidedef = &side;
@@ -186,16 +217,19 @@ void R_StoreWallRange(int start, int stop) {
     hyp = R_PointToDist(curline->v1->x, curline->v1->y);
     sineval = finesine[distangle >> ANGLETOFINESHIFT];
     rw_distance = FixedMul(hyp, sineval);
-    rw_x = start;
+    ds_p->x1 = rw_x = start;
+    ds_p->x2 = stop;
+    ds_p->curline = curline;
     rw_stopx = stop + 1;
-    rw_scale = R_ScaleFromGlobalAngle(viewangle + xtoviewangle[start]);
+    ds_p->scale1 = rw_scale = R_ScaleFromGlobalAngle(viewangle + xtoviewangle[start]);
     if (stop > start) {
-        fixed_t scale2 = R_ScaleFromGlobalAngle(viewangle + xtoviewangle[stop]);
-        rw_scalestep = (scale2 - rw_scale) / (stop - start);
-    }
+        ds_p->scale2 = R_ScaleFromGlobalAngle(viewangle + xtoviewangle[stop]);
+        ds_p->scalestep = rw_scalestep = (ds_p->scale2 - rw_scale) / (stop - start);
+    } else ds_p->scale2 = ds_p->scale1;
     worldtop = frontsector->ceilingheight - viewz;
     worldbottom = frontsector->floorheight - viewz;
     midtexture = toptexture = bottomtexture = maskedtexture = 0;
+    ds_p->maskedtexturecol = NULL;
     if (!backsector) {
         midtexture = texturetranslation[sidedef->midtexture];
         markfloor = markceiling = true;
@@ -203,7 +237,20 @@ void R_StoreWallRange(int start, int stop) {
             vtop = frontsector->floorheight + textureheight[sidedef->midtexture];
             rw_midtexturemid = vtop - viewz;
         } else rw_midtexturemid = worldtop;
+        ds_p->silhouette = SIL_BOTH;
+        ds_p->sprtopclip = screenheightarray;
+        ds_p->sprbottomclip = negonearray;
+        ds_p->bsilheight = MAXINT;
+        ds_p->tsilheight = MININT;
     } else {
+        ds_p->sprtopclip = ds_p->sprbottomclip = NULL;
+        ds_p->silhouette = 0;
+        if (frontsector->floorheight > backsector->floorheight) { ds_p->silhouette = SIL_BOTTOM; ds_p->bsilheight = frontsector->floorheight; }
+        else if (backsector->floorheight > viewz) { ds_p->silhouette = SIL_BOTTOM; ds_p->bsilheight = MAXINT; }
+        if (frontsector->ceilingheight < backsector->ceilingheight) { ds_p->silhouette |= SIL_TOP; ds_p->tsilheight = frontsector->ceilingheight; }
+        else if (backsector->ceilingheight < viewz) { ds_p->silhouette |= SIL_TOP; ds_p->tsilheight = MININT; }
+        if (backsector->ceilingheight <= frontsector->floorheight) { ds_p->sprbottomclip = negonearray; ds_p->bsilheight = MAXINT; ds_p->silhouette |= SIL_BOTTOM; }
+        if (backsector->floorheight >= frontsector->ceilingheight) { ds_p->sprtopclip = screenheightarray; ds_p->tsilheight = MININT; ds_p->silhouette |= SIL_TOP; }
         worldhigh = backsector->ceilingheight - viewz;
         worldlow = backsector->floorheight - viewz;
         if (frontsector->ceilingpic == skyflatnum && backsector->ceilingpic == skyflatnum) worldtop = worldhigh;
@@ -217,7 +264,11 @@ void R_StoreWallRange(int start, int stop) {
             markceiling = markfloor = true;
         if (worldhigh < worldtop) toptexture = texturetranslation[sidedef->toptexture];
         if (worldlow > worldbottom) bottomtexture = texturetranslation[sidedef->bottomtexture];
-        if (sidedef->midtexture) maskedtexture = true;
+        if (sidedef->midtexture) {
+            maskedtexture = true;
+            ds_p->maskedtexturecol = maskedtexturecol = lastopening - rw_x;
+            lastopening += rw_stopx - rw_x;
+        }
     }
     segtextured = midtexture | toptexture | bottomtexture | maskedtexture;
     if (segtextured) {
@@ -251,10 +302,22 @@ void R_StoreWallRange(int start, int stop) {
         if (worldlow > worldbottom) { pixlow = (centeryfrac >> 4) - FixedMul(worldlow, rw_scale); pixlowstep = -FixedMul(rw_scalestep, worldlow); }
     }
     R_RenderSegLoop();
+    if (((ds_p->silhouette & SIL_TOP) || maskedtexture) && !ds_p->sprtopclip) {
+        memcpy(lastopening, ceilingclip + start, 2 * (rw_stopx - start));
+        ds_p->sprtopclip = lastopening - start;
+        lastopening += rw_stopx - start;
+    }
+    if (((ds_p->silhouette & SIL_BOTTOM) || maskedtexture) && !ds_p->sprbottomclip) {
+        memcpy(lastopening, floorclip + start, 2 * (rw_stopx - start));
+        ds_p->sprbottomclip = lastopening - start;
+        lastopening += rw_stopx - start;
+    }
+    if (maskedtexture && !(ds_p->silhouette & SIL_TOP)) { ds_p->silhouette |= SIL_TOP; ds_p->tsilheight = MININT; }
+    if (maskedtexture && !(ds_p->silhouette & SIL_BOTTOM)) { ds_p->silhouette |= SIL_BOTTOM; ds_p->bsilheight = MAXINT; }
+    ds_p++;
 }
 
-int main(void) {
-    load_e1m1();
+void init_render(void) {
     projection = centerxfrac;
     for (int i = 0; i < 256; i++) texturetranslation[i] = i;
     for (int i = 0; i < LIGHTLEVELS; i++) {
@@ -266,15 +329,29 @@ int main(void) {
             scalelight[i][j] = colormaps + level * 256;
         }
     }
+    for (int i = 0; i < SCREENWIDTH; i++) { negonearray[i] = -1; screenheightarray[i] = viewheight; }
+}
+
+void clear_frame(void) {
+    lastvisplane = visplanes;
+    lastopening = openings;
+    ds_p = drawsegs;
+    for (int i = 0; i < viewwidth; i++) { floorclip[i] = viewheight; ceilingclip[i] = -1; }
+    R_ClearClipSegs();
+}
+
+#ifndef NO_MAIN
+int main(void) {
+    load_e1m1();
+    init_render();
     int views[][3] = { {1056, -3616, 90}, {1056, -3616, 0}, {1500, -3200, 135}, {3000, -3000, 180}, {2000, -2500, 270} };
     for (int v = 0; v < 5; v++) {
         viewx = views[v][0] << FRACBITS; viewy = views[v][1] << FRACBITS; viewz = 41 << FRACBITS;
         viewangle = (angle_t)(ANG45 / 45) * views[v][2];
         tracehash = 0; tracen = 0;
-        lastvisplane = visplanes;
-        for (int i = 0; i < viewwidth; i++) { floorclip[i] = viewheight; ceilingclip[i] = -1; }
-        R_ClearClipSegs();
+        clear_frame();
         R_RenderBSPNode(numnodes - 1);
         printf("        [%d, %d, %d, %d, %lldl],\n", views[v][0], views[v][1], views[v][2], tracen, tracehash);
     }
 }
+#endif

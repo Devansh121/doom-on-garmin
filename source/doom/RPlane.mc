@@ -51,6 +51,7 @@ module RPlane {
         }
 
         lastvisplane = 0;
+        RSegs.lastopening = RSegs.FIRSTOPENING;
     }
 
     //

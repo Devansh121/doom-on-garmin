@@ -10,7 +10,8 @@
 //    where R_RenderSegLoop marks them, instead of being stored in the
 //    visplane for R_DrawPlanes. The light for a span is what R_MapPlane
 //    would pick for its middle row.
-//  - drawsegs don't keep sprite clip lists yet; they come with r_things.
+//  - masked mid textures aren't drawn: maskedtexturecol space is
+//    allocated in openings like in the C code, but not filled.
 
 import Toybox.Graphics;
 import Toybox.Lang;
@@ -67,7 +68,7 @@ module RSegs {
     var walllights as Number = 0;
 
     //
-    // drawseg_t, one array per field. Sprite clip lists come later.
+    // drawseg_t, one array per field.
     //
     const MAXDRAWSEGS = 256;
     const SIL_NONE = 0;
@@ -90,6 +91,49 @@ module RSegs {
 
     // index of the next free drawseg (ds_p)
     var ds_p as Number = 0;
+
+    // ---- sprite clipping (r_things), from r_segs.c / r_plane.c ----
+    //
+    // Pointers to clip lists become indexes into openings:
+    // sprtopclip[x] is openings[drawsegs_sprtopclip[ds] + x]. NULL is -1.
+    // openings is a ByteArray holding value + 1 (clip values run from -1
+    // to viewheight), to keep it small.
+    //
+    // negonearray and screenheightarray (r_things.c) are the first
+    // 2 * SCREENWIDTH entries of openings, so they can be pointed at the
+    // same way; R_InitSprites and R_ExecuteSetViewSize fill them.
+    //
+    // MAXOPENINGS is SCREENWIDTH*64 in the C code, for up to 320
+    // columns. E1M1 views use under 1000 at low detail, so this keeps a
+    // few times that rather than 20 KB of heap.
+    const NEGONEARRAY = 0;
+    const SCREENHEIGHTARRAY = RMain.SCREENWIDTH;
+    const FIRSTOPENING = 2 * RMain.SCREENWIDTH;
+    const MAXOPENINGS = FIRSTOPENING + RMain.SCREENWIDTH * 12;
+    var openings as ByteArray = new [MAXOPENINGS]b;
+    var lastopening as Number = FIRSTOPENING;
+
+    var drawsegs_sprtopclip as Array<Number> = new [MAXDRAWSEGS] as Array<Number>;
+    var drawsegs_sprbottomclip as Array<Number> = new [MAXDRAWSEGS] as Array<Number>;
+    var drawsegs_maskedtexturecol as Array<Number> = new [MAXDRAWSEGS] as Array<Number>;
+
+    // Copies count clip values from clip[start..] to lastopening, the
+    // memcpy in R_StoreWallRange. Returns the new list's pointer
+    // (lastopening - start).
+    function saveClip(clip as Array<Number>, start as Number, count as Number) as Number {
+        var o = openings;
+        var p = lastopening;
+        if (p + count > MAXOPENINGS) {
+            // R_DrawPlanes' check, made before writing past the end
+            ISystem.I_Error("R_StoreWallRange: opening overflow");
+        }
+        for (var i = 0; i < count; i++) {
+            o[p + i] = clip[start + i] + 1;
+        }
+        lastopening = p + count;
+        return p - start;
+    }
+    // ---- end of sprite clipping ----
 
     // Rough count of work done this frame, so the BSP walk knows when to
     // hand control back before the watchdog trips.
@@ -336,7 +380,11 @@ module RSegs {
                     }
                 }
 
-                // maskedtexturecol comes with r_things
+                // save texturecol
+                //  for backdrawing of masked mid texture
+                // (maskedtexturecol[rw_x] = texturecolumn: texture
+                // columns aren't tracked, masked mid textures aren't
+                // drawn yet)
             }
 
             rw_scale += rw_scalestep;
@@ -449,6 +497,7 @@ module RSegs {
         toptexture = 0;
         bottomtexture = 0;
         maskedtexture = false;
+        drawsegs_maskedtexturecol[ds] = -1;
 
         if (backsector == -1) {
             // single sided line
@@ -458,6 +507,8 @@ module RSegs {
             markceiling = true;
             // (rw_midtexturemid only matters for texturing)
             drawsegs_silhouette[ds] = SIL_BOTH;
+            drawsegs_sprtopclip[ds] = SCREENHEIGHTARRAY;
+            drawsegs_sprbottomclip[ds] = NEGONEARRAY;
             drawsegs_bsilheight[ds] = DoomType.MAXINT;
             drawsegs_tsilheight[ds] = DoomType.MININT;
         } else {
@@ -467,6 +518,8 @@ module RSegs {
             var bceil = PSetup.sectors_ceilingheight[backsector];
 
             // two sided line
+            drawsegs_sprtopclip[ds] = -1;
+            drawsegs_sprbottomclip[ds] = -1;
             drawsegs_silhouette[ds] = 0;
 
             if (ffloor > bfloor) {
@@ -486,11 +539,13 @@ module RSegs {
             }
 
             if (bceil <= ffloor) {
+                drawsegs_sprbottomclip[ds] = NEGONEARRAY;
                 drawsegs_bsilheight[ds] = DoomType.MAXINT;
                 drawsegs_silhouette[ds] |= SIL_BOTTOM;
             }
 
             if (bfloor >= fceil) {
+                drawsegs_sprtopclip[ds] = SCREENHEIGHTARRAY;
                 drawsegs_tsilheight[ds] = DoomType.MININT;
                 drawsegs_silhouette[ds] |= SIL_TOP;
             }
@@ -541,6 +596,8 @@ module RSegs {
             if (PSetup.sides_midtexture[sidedef] != 0) {
                 // masked midtexture
                 maskedtexture = true;
+                drawsegs_maskedtexturecol[ds] = lastopening - rw_x;
+                lastopening += rw_stopx - rw_x;
             }
         }
 
@@ -619,6 +676,17 @@ module RSegs {
         // (R_CheckPlane only splits visplanes' column lists, which
         // aren't kept here)
         R_RenderSegLoop();
+
+        // save sprite clipping info
+        if (((drawsegs_silhouette[ds] & SIL_TOP) != 0 || maskedtexture)
+            && drawsegs_sprtopclip[ds] == -1) {
+            drawsegs_sprtopclip[ds] = saveClip(RPlane.ceilingclip, start, rw_stopx - start);
+        }
+
+        if (((drawsegs_silhouette[ds] & SIL_BOTTOM) != 0 || maskedtexture)
+            && drawsegs_sprbottomclip[ds] == -1) {
+            drawsegs_sprbottomclip[ds] = saveClip(RPlane.floorclip, start, rw_stopx - start);
+        }
 
         if (maskedtexture && (drawsegs_silhouette[ds] & SIL_TOP) == 0) {
             drawsegs_silhouette[ds] |= SIL_TOP;
