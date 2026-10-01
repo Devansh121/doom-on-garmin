@@ -113,6 +113,14 @@ module RMain {
     // tests set 11, full screen, which the expected values assume.
     var screenblocks as Number = 10;
 
+    // m_menu.c's detailLevel: 0 is high detail (320 columns), 1 low (160).
+    // The watch renders at 2, a quarter-detail mode the original doesn't
+    // have: viewwidth = scaledviewwidth >> detailshift gives 80 columns,
+    // each drawn five pixels wide. Everything that depends on detail
+    // already goes through detailshift, so nothing else changes. Measured
+    // on the watch, a column costs about 1.2 ms at 160 columns.
+    var detaillevel as Number = 2;
+
     // the player number whose view is drawn
     var viewplayer as Number = 0;
 
@@ -541,7 +549,7 @@ module RMain {
             RData.R_InitData();
 
             // viewwidth / viewheight / detailLevel are set by the defaults
-            R_SetViewSize(screenblocks, 1);
+            R_SetViewSize(screenblocks, detaillevel);
             R_ExecuteSetViewSize();
             return false;
         }
