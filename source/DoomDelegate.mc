@@ -2,8 +2,13 @@ import Toybox.Lang;
 import Toybox.System;
 import Toybox.WatchUi;
 
-// Buttons: UP/DOWN hold = turn left/right, START hold = walk forward, BACK = quit.
-// Touch: hold left/right third = turn, middle = walk forward, bottom fifth = walk back.
+// d_event.h / i_video.c's job: turn watch input into Doom's keys, which
+// G_BuildTiccmd reads.
+//
+// Buttons: UP/DOWN hold = turn left/right, START hold = walk forward,
+// BACK = quit.
+// Touch: hold the upper half = fire, the lower half = use (doors,
+// switches).
 class DoomDelegate extends WatchUi.InputDelegate {
 
     function initialize() {
@@ -20,11 +25,11 @@ class DoomDelegate extends WatchUi.InputDelegate {
 
     function setKey(key as Number, down as Boolean) as Boolean {
         if (key == WatchUi.KEY_UP) {
-            DMain.turn = down ? -1 : 0;
+            GGame.key_left = down;
         } else if (key == WatchUi.KEY_DOWN) {
-            DMain.turn = down ? 1 : 0;
+            GGame.key_right = down;
         } else if (key == WatchUi.KEY_ENTER) {
-            DMain.forward = down ? 1 : 0;
+            GGame.key_up = down;
         } else {
             return false;
         }
@@ -33,27 +38,14 @@ class DoomDelegate extends WatchUi.InputDelegate {
 
     function onDrag(evt as WatchUi.DragEvent) as Boolean {
         if (evt.getType() == WatchUi.DRAG_TYPE_STOP) {
-            DMain.turn = 0;
-            DMain.forward = 0;
+            GGame.key_fire = false;
+            GGame.key_use = false;
             return true;
         }
-        var c = evt.getCoordinates();
-        var x = c[0];
-        var y = c[1];
-        var s = System.getDeviceSettings();
-        var w = s.screenWidth;
-        var h = s.screenHeight;
-        DMain.turn = 0;
-        DMain.forward = 0;
-        if (y > h * 4 / 5) {
-            DMain.forward = -1;
-        } else if (x < w / 3) {
-            DMain.turn = -1;
-        } else if (x > w * 2 / 3) {
-            DMain.turn = 1;
-        } else {
-            DMain.forward = 1;
-        }
+        var y = evt.getCoordinates()[1];
+        var upper = y < System.getDeviceSettings().screenHeight / 2;
+        GGame.key_fire = upper;
+        GGame.key_use = !upper;
         return true;
     }
 }

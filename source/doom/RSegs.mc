@@ -10,7 +10,6 @@
 //    where R_RenderSegLoop marks them, instead of being stored in the
 //    visplane for R_DrawPlanes. The light for a span is what R_MapPlane
 //    would pick for its middle row.
-//  - texturetranslation (animated walls) is identity until p_spec.
 //  - drawsegs don't keep sprite clip lists yet; they come with r_things.
 
 import Toybox.Graphics;
@@ -362,7 +361,7 @@ module RSegs {
             planebase = -1;
             return;
         }
-        planebase = picnum * RMain.NUMCOLORMAPS;
+        planebase = RData.flattranslation[picnum] * RMain.NUMCOLORMAPS;
         // planeheight = abs(pl->height-viewz);
         planeheight = MFixed.abs(RPlane.visplanes_height[plane] - RMain.viewz);
         // light = (pl->lightlevel >> LIGHTSEGSHIFT)+extralight;
@@ -453,7 +452,7 @@ module RSegs {
 
         if (backsector == -1) {
             // single sided line
-            midtexture = PSetup.sides_midtexture[sidedef];
+            midtexture = RData.texturetranslation[PSetup.sides_midtexture[sidedef]];
             // a single sided line is terminal, so it must mark ends
             markfloor = true;
             markceiling = true;
@@ -531,11 +530,11 @@ module RSegs {
 
             if (worldhigh < worldtop) {
                 // top texture
-                toptexture = PSetup.sides_toptexture[sidedef];
+                toptexture = RData.texturetranslation[PSetup.sides_toptexture[sidedef]];
             }
             if (worldlow > worldbottom) {
                 // bottom texture
-                bottomtexture = PSetup.sides_bottomtexture[sidedef];
+                bottomtexture = RData.texturetranslation[PSetup.sides_bottomtexture[sidedef]];
             }
 
             // allocate space for masked texture tables

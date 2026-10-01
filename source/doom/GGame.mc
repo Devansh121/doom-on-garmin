@@ -230,4 +230,92 @@ module GGame {
 
         G_DoLoadLevel();
     }
+
+    //
+    // G_BuildTiccmd
+    // Builds a ticcmd from all of the available inputs
+    // or reads it from the demo buffer.
+    // If recording a demo, write it out
+    //
+    // The watch only has a few buttons and the touchscreen. The view's
+    // delegate sets these, standing in for gamekeydown[].
+    var key_left as Boolean = false;
+    var key_right as Boolean = false;
+    var key_up as Boolean = false;
+    var key_down as Boolean = false;
+    var key_fire as Boolean = false;
+    var key_use as Boolean = false;
+
+    const SLOWTURNTICS = 6;
+
+    var forwardmove as Array<Number> = [0x19, 0x32] as Array<Number>;
+    var sidemove as Array<Number> = [0x18, 0x28] as Array<Number>;
+    var angleturn as Array<Number> = [640, 1280, 320] as Array<Number>; // + slow turn
+
+    var turnheld as Number = 0; // for accelerative turning
+
+    function G_BuildTiccmd(player as Number) as Void {
+        var forward = 0;
+        var side = 0;
+        var cmd_angleturn = 0;
+        var buttons = 0;
+
+        // no run key on the watch
+        var speed = 0;
+        var tspeed;
+
+        // use two stage accelerative turning
+        // on the keyboard and joystick
+        if (key_right || key_left) {
+            turnheld += 1;
+        } else {
+            turnheld = 0;
+        }
+
+        if (turnheld < SLOWTURNTICS) {
+            tspeed = 2;  // slow turn
+        } else {
+            tspeed = speed;
+        }
+
+        // let movement keys cancel each other out
+        if (key_right) {
+            cmd_angleturn -= angleturn[tspeed];
+        }
+        if (key_left) {
+            cmd_angleturn += angleturn[tspeed];
+        }
+
+        if (key_up) {
+            forward += forwardmove[speed];
+        }
+        if (key_down) {
+            forward -= forwardmove[speed];
+        }
+
+        // buttons
+        if (key_fire) {
+            buttons |= DPlayer.BT_ATTACK;
+        }
+
+        if (key_use) {
+            buttons |= DPlayer.BT_USE;
+        }
+
+        if (forward > PLocal.MAXPLMOVE) {
+            forward = PLocal.MAXPLMOVE;
+        } else if (forward < -PLocal.MAXPLMOVE) {
+            forward = -PLocal.MAXPLMOVE;
+        }
+        if (side > PLocal.MAXPLMOVE) {
+            side = PLocal.MAXPLMOVE;
+        } else if (side < -PLocal.MAXPLMOVE) {
+            side = -PLocal.MAXPLMOVE;
+        }
+
+        DPlayer.players_cmd_forwardmove[player] = forward;
+        DPlayer.players_cmd_sidemove[player] = side;
+        DPlayer.players_cmd_angleturn[player] = cmd_angleturn;
+        DPlayer.players_cmd_buttons[player] = buttons;
+    }
 }

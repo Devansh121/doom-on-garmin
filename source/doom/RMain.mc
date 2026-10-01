@@ -575,7 +575,8 @@ module RMain {
     //
     // R_SetupFrame
     //
-    // Takes the view position directly until there's a player_t.
+    // Takes the view position directly so tests can render from any spot;
+    // R_RenderPlayerView fills it in from the player.
     //
     function R_SetupFrame(x as Number, y as Number, z as Number, angle as Number) as Void {
         viewx = x;
@@ -603,8 +604,13 @@ module RMain {
     // Sets the frame up; R_RenderPlayerViewStep then does the drawing a
     // slice at a time.
     //
-    function R_RenderPlayerView(x as Number, y as Number, z as Number, angle as Number) as Void {
-        R_SetupFrame(x, y, z, angle);
+    function R_RenderPlayerView(player as Number) as Void {
+        // R_SetupFrame (player)
+        var mo = DPlayer.players_mo[player];
+        R_SetupFrame(PMobj.mobjs_x[mo], PMobj.mobjs_y[mo], DPlayer.players_viewz[player], PMobj.mobjs_angle[mo]);
+        extralight = DPlayer.players_extralight[player];
+        // player->fixedcolormap is 0 for none; here -1 means none
+        fixedcolormap = DPlayer.players_fixedcolormap[player] != 0 ? DPlayer.players_fixedcolormap[player] : -1;
 
         // Clear buffers.
         RBsp.R_ClearClipSegs();

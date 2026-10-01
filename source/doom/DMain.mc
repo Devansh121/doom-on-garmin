@@ -10,8 +10,6 @@
 // per tick, and after that each tick does a slice of the frame (see
 // D_Tick). The frame only gets shown once it's finished.
 //
-// Until p_user/p_map are ported the view just flies around: no
-// collision, view height follows the floor.
 
 import Toybox.Lang;
 import Toybox.System;
@@ -21,6 +19,9 @@ module DMain {
     // How much rendering one tick may do, in RSegs.work units.
     const RENDERBUDGET = 450;
 
+    // How many thinkers one tick may run.
+    const THINKBUDGET = 32;
+
     // startup progress
     var startupstep as Number = 0;
     var started as Boolean = false;
@@ -29,15 +30,7 @@ module DMain {
     var rendering as Boolean = false;
     var framedone as Boolean = false;
 
-    // the stand-in player
-    var px as Number = 0;
-    var py as Number = 0;
-    var pz as Number = 0;
-    var pangle as Number = 0;
 
-    // input, set by the view's delegate: -1, 0 or 1
-    var forward as Number = 0;
-    var turn as Number = 0;
 
     // stats for the overlay
     var frames as Number = 0;
@@ -74,7 +67,6 @@ module DMain {
         if (s == 2) {
             if (PSetup.P_SetupLevelStep()) {
                 System.println("P_SetupLevel: E1M1 done, " + System.getSystemStats().usedMemory + " bytes used");
-                G_StartPlayer();
                 startupstep++;
                 started = true;
                 fpsstart = System.getTimer();
@@ -83,33 +75,64 @@ module DMain {
         }
     }
 
-    // P_SpawnPlayer's position and angle, until there's a real mobj.
-    function G_StartPlayer() as Void {
-        var start = DoomStat.playerstarts[0] as Array<Number>;
-        px = start[0] << MFixed.FRACBITS;
-        py = start[1] << MFixed.FRACBITS;
-        pangle = Tables.ANG45 * (start[2] / 45);
-        P_ViewHeight();
+    //
+    // D_DoomLoop
+    //
+    // Each frame: run the game tics that are due (G_Ticker / P_Ticker),
+    // then render, each spread over as many timer callbacks as the
+    // watchdog needs. TryRunTics' job of keeping game time in step with
+    // real time is done by running up to MAXTICS tics per frame.
+    //
+    const MAXTICS = 4;
+
+    // phases of a frame
+    const PH_TICS = 0;
+    const PH_RENDER = 1;
+    var phase as Number = PH_TICS;
+    var ticsleft as Number = 0;
+    var ticrunning as Boolean = false;
+    var lasttime as Number = 0;
+
+    function D_StartFrame() as Void {
+        var now = System.getTimer();
+        var due = (now - lasttime) * DoomDef.TICRATE / 1000;
+        if (due < 1) {
+            due = 1;
+        } else if (due > MAXTICS) {
+            due = MAXTICS;
+        }
+        lasttime = now;
+        ticsleft = due;
+        phase = PH_TICS;
     }
 
-    function P_ViewHeight() as Void {
-        var ss = RMain.R_PointInSubsector(px, py);
-        pz = PSetup.sectors_floorheight[PSetup.subsectors_sector[ss]] + PLocal.VIEWHEIGHT;
-    }
+    // Returns true once all of this frame's tics have run.
+    function D_RunTics() as Boolean {
+        while (ticsleft > 0) {
+            if (!ticrunning) {
+                // G_Ticker: build the player's command and start the tic
+                GGame.G_BuildTiccmd(DPlayer.consoleplayer);
+                PTick.P_TickerStart();
+                ticrunning = true;
+            }
+            if (!PTick.P_TickerStep(THINKBUDGET)) {
+                return false;
+            }
+            ticrunning = false;
+            ticsleft--;
+            DoomStat.gametic++;
 
-    // One game tic of the stand-in movement. angleturn and walking speed
-    // are roughly what g_game.c / p_user.c give a walking player.
-    function G_Ticker() as Void {
-        if (turn != 0) {
-            pangle -= turn * (640 << 16);
+            // G_DoReborn: single player just reloads the level
+            if (DPlayer.players_playerstate[DPlayer.consoleplayer] == DPlayer.PST_REBORN) {
+                GGame.G_DoLoadLevel();
+                startupstep = 2;
+                started = false;
+                return false;
+            }
+            // only one slice of thinkers per callback
+            return ticsleft == 0;
         }
-        if (forward != 0) {
-            var fine = (pangle >> Tables.ANGLETOFINESHIFT) & Tables.FINEMASK;
-            var speed = forward * 8 * MFixed.FRACUNIT;
-            px += MFixed.FixedMul(speed, Tables.finesine[Tables.FINECOSINE + fine]);
-            py += MFixed.FixedMul(speed, Tables.finesine[fine]);
-            P_ViewHeight();
-        }
+        return true;
     }
 
     //
@@ -119,20 +142,27 @@ module DMain {
     function D_Tick() as Boolean {
         if (!started) {
             D_DoomMainStep();
+            if (started) {
+                lasttime = System.getTimer();
+                D_StartFrame();
+            }
             return true;
         }
 
         ticks++;
-        if (!rendering) {
-            // Game logic only runs between frames so a frame never shows a
-            // half-moved view.
-            G_Ticker();
-            RMain.R_RenderPlayerView(px, py, pz, pangle);
-            rendering = true;
+        if (phase == PH_TICS) {
+            if (!D_RunTics()) {
+                return false;
+            }
+            if (!started) {
+                return true;
+            }
+            RMain.R_RenderPlayerView(DPlayer.consoleplayer);
+            phase = PH_RENDER;
+            return false;
         }
 
         if (RMain.R_RenderPlayerViewStep(RENDERBUDGET)) {
-            rendering = false;
             frames++;
             var now = System.getTimer();
             if (now - fpsstart >= 2000) {
@@ -140,6 +170,7 @@ module DMain {
                 frames = 0;
                 fpsstart = now;
             }
+            D_StartFrame();
             return true;
         }
         return false;

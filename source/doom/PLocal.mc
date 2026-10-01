@@ -11,6 +11,9 @@ module PLocal {
     const MAXHEALTH = 100;
     const VIEWHEIGHT = 41 * MFixed.FRACUNIT;
 
+    // g_game.c: forwardmove[1]
+    const MAXPLMOVE = 0x32;
+
     const MAPBLOCKUNITS = 128;
     const MAPBLOCKSIZE = MAPBLOCKUNITS * MFixed.FRACUNIT;
     const MAPBLOCKSHIFT = MFixed.FRACBITS + 7;
