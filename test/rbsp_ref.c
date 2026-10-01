@@ -21,7 +21,8 @@ typedef int boolean;
 typedef struct { fixed_t x, y; } vertex_t;
 typedef struct { fixed_t floorheight, ceilingheight; short floorpic, ceilingpic, lightlevel; } sector_t;
 typedef struct { short midtexture; } side_t;
-typedef struct { vertex_t *v1, *v2; side_t *sidedef; sector_t *frontsector, *backsector; } seg_t;
+typedef struct { vertex_t *v1, *v2; side_t *sidedef; sector_t *frontsector, *backsector;
+                 angle_t angle; fixed_t offset; int linedef, flags, toptexture, bottomtexture; } seg_t;
 typedef struct { sector_t *sector; short numlines, firstline; } subsector_t;
 typedef struct { fixed_t x, y, dx, dy; fixed_t bbox[2][4]; unsigned short children[2]; } node_t;
 
@@ -41,12 +42,16 @@ int skyflatnum = 54;
 seg_t* curline; sector_t* frontsector; sector_t* backsector;
 long long tracesum; int tracecount; int tracefirst[15];
 
+#ifndef HAVE_STOREWALLRANGE
 void R_StoreWallRange(int start, int stop) {
     int line = curline - segs;
     if (tracecount < 5) { tracefirst[tracecount * 3] = line; tracefirst[tracecount * 3 + 1] = start; tracefirst[tracecount * 3 + 2] = stop; }
     tracecount++;
     tracesum += (long long)tracecount * (line * 100000LL + start * 1000 + stop);
 }
+#else
+void R_StoreWallRange(int start, int stop);
+#endif
 
 fixed_t FixedMul(fixed_t a, fixed_t b) { return ((long long) a * (long long) b) >> FRACBITS; }
 fixed_t FixedDiv2(fixed_t a, fixed_t b) { long long c = ((long long)a<<16) / ((long long)b); return (fixed_t) c; }
@@ -227,6 +232,9 @@ void R_Subsector(int num) {
     frontsector = sub->sector;
     count = sub->numlines;
     line = &segs[sub->firstline];
+#ifdef SUBSECTOR_HOOK
+    SUBSECTOR_HOOK();
+#endif
     while (count--) { R_AddLine(line); line++; }
 }
 
@@ -239,8 +247,8 @@ void R_RenderBSPNode(int bspnum) {
     if (R_CheckBBox(bsp->bbox[side ^ 1])) R_RenderBSPNode(bsp->children[side ^ 1]);
 }
 
-int main(void) {
-    int n, a, b, c, d, e;
+void load_e1m1(void) {
+    int a, b, c, d, e;
     scanf("%d", &numvertexes);
     for (int i = 0; i < numvertexes; i++) { scanf("%d %d", &a, &b); vertexes[i].x = a << FRACBITS; vertexes[i].y = b << FRACBITS; }
     scanf("%d", &numsectors);
@@ -251,7 +259,10 @@ int main(void) {
     }
     scanf("%d", &numsegs);
     for (int i = 0; i < numsegs; i++) {
-        scanf("%d %d %d %d %d", &a, &b, &c, &d, &e);
+        int f[6];
+        scanf("%d %d %d %d %d %d %d %d %d %d %d", &a, &b, &c, &d, &e, &f[0], &f[1], &f[2], &f[3], &f[4], &f[5]);
+        segs[i].angle = f[0] << 16; segs[i].offset = f[1] << 16; segs[i].linedef = f[2]; segs[i].flags = f[3];
+        segs[i].toptexture = f[4]; segs[i].bottomtexture = f[5];
         segs[i].v1 = &vertexes[a]; segs[i].v2 = &vertexes[b];
         segs[i].frontsector = &sectors[c]; segs[i].backsector = d < 0 ? NULL : &sectors[d];
         segsides[i].midtexture = e; segs[i].sidedef = &segsides[i];
@@ -265,7 +276,11 @@ int main(void) {
         for (int j = 0; j < 2; j++) { nodes[i].children[j] = v[12 + j]; for (int k = 0; k < 4; k++) nodes[i].bbox[j][k] = v[4 + j * 4 + k] << FRACBITS; }
     }
     R_InitTextureMapping();
+}
 
+#ifndef HAVE_STOREWALLRANGE
+int main(void) {
+    load_e1m1();
     int views[][3] = { {1056, -3616, 90}, {1056, -3616, 0}, {1500, -3200, 135}, {3000, -3000, 180}, {2000, -2500, 270}, {-200, 200, 30} };
     for (int i = 0; i < 6; i++) {
         viewx = views[i][0] << FRACBITS; viewy = views[i][1] << FRACBITS; viewz = 41 << FRACBITS;
@@ -277,3 +292,4 @@ int main(void) {
                sscount, tracecount, tracesum, tracefirst[0], tracefirst[1], tracefirst[2], tracefirst[3], tracefirst[4], tracefirst[5]);
     }
 }
+#endif

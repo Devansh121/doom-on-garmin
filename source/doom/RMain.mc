@@ -473,8 +473,9 @@ module RMain {
         centeryfrac = centery << MFixed.FRACBITS;
         projection = centerxfrac;
 
-        // colfunc/spanfunc selection and R_InitBuffer belong to r_draw,
-        // which picks its own column width from viewwidth.
+        // colfunc/spanfunc are always RDraw.R_DrawColumn, which already
+        // sizes its columns from viewwidth.
+        RDraw.R_InitBuffer(viewwidth, viewheight);
     }
 
     function R_ExecuteSetViewSize_Tables() as Void {
