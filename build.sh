@@ -14,7 +14,7 @@ DEVICE=fr965
 SDK=${CIQ_SDK:-$(ls -d ~/.Garmin/ConnectIQ/Sdks/connectiq-sdk-lin-* 2>/dev/null | sort -V | tail -1)}
 WAD=${DOOM_WAD:-doom1.wad}
 KEY=${CIQ_KEY:-$HOME/.Garmin/developer_key.der}
-GEN=resources/generated
+GEN=generated/resources
 
 [ -x "$SDK/bin/monkeyc" ] || { echo "Connect IQ SDK not found, set CIQ_SDK" >&2; exit 1; }
 [ -f "$KEY" ] || { echo "developer key $KEY not found, see README" >&2; exit 1; }

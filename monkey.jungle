@@ -1,2 +1,3 @@
 project.manifest = manifest.xml
-base.sourcePath = source;test
+base.sourcePath = source;test;generated/source
+base.resourcePath = resources;generated/resources
