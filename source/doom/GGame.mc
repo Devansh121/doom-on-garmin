@@ -230,9 +230,4 @@ module GGame {
 
         G_DoLoadLevel();
     }
-
-    // stub until the rest of g_game.c is ported; A_BossDeath and
-    // A_BrainDie call it
-    function G_ExitLevel() as Void {
-    }
 }
