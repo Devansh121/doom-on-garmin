@@ -117,6 +117,9 @@ module PTick {
     //
     var currentthinker as Number = 0;
 
+    // budget left over when P_RunThinkersStep finishes the list
+    var budgetleft as Number = 0;
+
     function P_RunThinkers() as Void {
         currentthinker = thinkers_next[0];
     }
@@ -155,6 +158,7 @@ module PTick {
             t = after;
         }
         currentthinker = 0;
+        budgetleft = budget;
         return true;
     }
 
@@ -207,8 +211,10 @@ module PTick {
     }
 
     function P_TickerStep(budget as Number) as Boolean {
+        budgetleft = budget;
         if (tickerstage == 1) {
             if (!P_RunThinkersStep(budget)) {
+                budgetleft = 0;
                 return false;
             }
             tickerstage = 2;

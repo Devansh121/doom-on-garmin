@@ -20,7 +20,7 @@ module DMain {
     const RENDERBUDGET = 450;
 
     // How many thinkers one tick may run.
-    const THINKBUDGET = 32;
+    const THINKBUDGET = 128;
 
     // startup progress
     var startupstep as Number = 0;
@@ -83,7 +83,7 @@ module DMain {
     // watchdog needs. TryRunTics' job of keeping game time in step with
     // real time is done by running up to MAXTICS tics per frame.
     //
-    const MAXTICS = 4;
+    const MAXTICS = 3;
 
     // phases of a frame
     const PH_TICS = 0;
@@ -106,8 +106,10 @@ module DMain {
         phase = PH_TICS;
     }
 
-    // Returns true once all of this frame's tics have run.
-    function D_RunTics() as Boolean {
+    // Runs this frame's due tics with the thinker budget for one
+    // callback. Returns true once they've all run, leaving whatever budget
+    // is unused in PTick.budgetleft.
+    function D_RunTics(budget as Number) as Boolean {
         while (ticsleft > 0) {
             if (!ticrunning) {
                 // G_Ticker: build the player's command and start the tic
@@ -115,9 +117,10 @@ module DMain {
                 PTick.P_TickerStart();
                 ticrunning = true;
             }
-            if (!PTick.P_TickerStep(THINKBUDGET)) {
+            if (!PTick.P_TickerStep(budget)) {
                 return false;
             }
+            budget = PTick.budgetleft;
             ticrunning = false;
             ticsleft--;
             DoomStat.gametic++;
@@ -129,9 +132,8 @@ module DMain {
                 started = false;
                 return false;
             }
-            // only one slice of thinkers per callback
-            return ticsleft == 0;
         }
+        PTick.budgetleft = budget;
         return true;
     }
 
@@ -150,19 +152,22 @@ module DMain {
         }
 
         ticks++;
+        // One budget per callback: tics first, then whatever is left
+        // goes to rendering, so a callback doesn't end half used.
+        var renderbudget = RENDERBUDGET;
         if (phase == PH_TICS) {
-            if (!D_RunTics()) {
-                return false;
-            }
-            if (!started) {
-                return true;
+            if (!D_RunTics(THINKBUDGET)) {
+                return !started;
             }
             RMain.R_RenderPlayerView(DPlayer.consoleplayer);
             phase = PH_RENDER;
-            return false;
+            renderbudget = RENDERBUDGET * PTick.budgetleft / THINKBUDGET;
+            if (renderbudget <= 0) {
+                return false;
+            }
         }
 
-        if (RMain.R_RenderPlayerViewStep(RENDERBUDGET)) {
+        if (RMain.R_RenderPlayerViewStep(renderbudget)) {
             frames++;
             var now = System.getTimer();
             if (now - fpsstart >= 2000) {
