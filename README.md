@@ -12,7 +12,7 @@ Connect IQ only runs Monkey C bytecode, so no native C code and no custom firmwa
 
 ## Build
 
-You'll need the [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) with the `fr965` device files (from the SDK Manager, which needs a Garmin login), Python 3, and the shareware `doom1.wad` (v1.9, md5 `f0cefca49926d00903cf57551d901abe`).
+You'll need the [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) with the `fr965` device files (from the SDK Manager, which needs a Garmin login), Python 3 with Pillow, and the shareware `doom1.wad` (v1.9, md5 `f0cefca49926d00903cf57551d901abe`).
 
 ```sh
 # one-time developer key, kept outside the repo
@@ -23,7 +23,7 @@ DOOM_WAD=path/to/doom1.wad ./build.sh run       # run in the simulator
 DOOM_WAD=path/to/doom1.wad ./build.sh install   # copy to a watch plugged in over USB
 ```
 
-`build.sh` runs `tools/wad2ciq.py` first, which unpacks the map lumps into `resources/generated/`. Connect IQ apps can't read files, so the WAD data is built into the app. The trig tables in `resources/tables/` were extracted from the original `tables.c` with `tools/tables2ciq.py`. Likewise the thing and state tables in `resources/info/` (and `source/doom/Info.mc`) come from `info.c` / `info.h` via `tools/info2ciq.py`.
+`build.sh` runs `tools/wad2ciq.py` first, which unpacks the map lumps into `generated/resources/`, and `tools/hud2ciq.py`, which turns the status bar patches into PNGs there. Connect IQ apps can't read files, so the WAD data is built into the app. The trig tables in `resources/tables/` were extracted from the original `tables.c` with `tools/tables2ciq.py`. Likewise the thing and state tables in `resources/info/` (and `source/doom/Info.mc`) come from `info.c` / `info.h` via `tools/info2ciq.py`.
 
 ## Controls
 
