@@ -4,3 +4,4 @@ bin/
 *.wad
 *.WAD
 generated/
+__pycache__/
