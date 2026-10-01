@@ -469,6 +469,18 @@ module RSegs {
     //  between start and stop pixels (inclusive).
     //
     function R_StoreWallRange(start as Number, stop as Number) as Void {
+        // Split in three so R_StoreWallRangeSetup's locals are off the
+        // stack while R_RenderSegLoop runs: Monkey C's stack only holds
+        // about 220 slots, and this is the deepest point of a frame.
+        if (R_StoreWallRangeSetup(start, stop)) {
+            R_RenderSegLoop();
+            R_StoreWallRangeFinish(start);
+        }
+    }
+
+    // Everything R_StoreWallRange does before R_RenderSegLoop. Returns
+    // false if the wall isn't stored (out of drawsegs).
+    function R_StoreWallRangeSetup(start as Number, stop as Number) as Boolean {
         work += stop - start + 1;
         if (trace != null) {
             trace.add(RBsp.curline);
@@ -478,9 +490,14 @@ module RSegs {
 
         // don't overflow and crash
         if (ds_p == MAXDRAWSEGS) {
-            return;
+            return false;
         }
 
+        // This runs for every visible wall. On the watch a module
+        // variable costs about 23 us to read or write against well under
+        // 1 us for a local, so the work below is done in locals and the
+        // module variables R_ScaleFromGlobalAngle and R_RenderSegLoop read
+        // are set once each. The steps are the C code's.
         var curline = RBsp.curline;
         var frontsector = RBsp.frontsector;
         var backsector = RBsp.backsector;
@@ -489,21 +506,35 @@ module RSegs {
         RBsp.sidedef = sidedef;
         RBsp.linedef = linedef;
         var viewz = RMain.viewz;
+        var sectors_floorheight = PSetup.sectors_floorheight;
+        var sectors_ceilingheight = PSetup.sectors_ceilingheight;
+        var sectors_ceilingpic = PSetup.sectors_ceilingpic;
+        var sectors_lightlevel = PSetup.sectors_lightlevel;
+        var texturetranslation = RData.texturetranslation;
+        var skyflatnum = RData.skyflatnum;
+        var ffloor = sectors_floorheight[frontsector];
+        var fceil = sectors_ceilingheight[frontsector];
 
         // mark the segment as visible for auto map
         PSetup.lines_flags[linedef] |= DoomData.ML_MAPPED;
 
         // calculate rw_distance for scale calculation
-        rw_normalangle = PSetup.segs_angle[curline] + Tables.ANG90;
-        var offsetangle = MFixed.abs(rw_normalangle - rw_angle1);
+        var normalangle = PSetup.segs_angle[curline] + Tables.ANG90;
+        rw_normalangle = normalangle;
+        var offsetangle = normalangle - rw_angle1;
+        if (offsetangle < 0) {
+            offsetangle = -offsetangle;  // abs()
+        }
 
-        if (DoomType.UGT(offsetangle, Tables.ANG90)) {
+        if ((offsetangle ^ DoomType.MININT) > (Tables.ANG90 ^ DoomType.MININT)) {
             offsetangle = Tables.ANG90;
         }
 
         var distangle = Tables.ANG90 - offsetangle;
         var v1 = PSetup.segs_v1[curline];
-        var hyp = RMain.R_PointToDist(PSetup.vertexes_x[v1], PSetup.vertexes_y[v1]);
+        var vx = PSetup.vertexes_x;
+        var vy = PSetup.vertexes_y;
+        var hyp = RMain.R_PointToDist(vx[v1], vy[v1]);
         var sineval = Tables.finesine[(distangle >> Tables.ANGLETOFINESHIFT) & Tables.FINEMASK];
         rw_distance = MFixed.FixedMul(hyp, sineval);
 
@@ -512,38 +543,49 @@ module RSegs {
         drawsegs_x1[ds] = start;
         drawsegs_x2[ds] = stop;
         drawsegs_curline[ds] = curline;
-        rw_stopx = stop + 1;
+        var stopx = stop + 1;
+        rw_stopx = stopx;
 
         // calculate scale at both ends and step
-        rw_scale = RMain.R_ScaleFromGlobalAngle(RMain.viewangle + RMain.xtoviewangle[start]);
-        drawsegs_scale1[ds] = rw_scale;
+        var viewangle = RMain.viewangle;
+        var xtoviewangle = RMain.xtoviewangle;
+        var scale = RMain.R_ScaleFromGlobalAngle(viewangle + xtoviewangle[start]);
+        rw_scale = scale;
+        drawsegs_scale1[ds] = scale;
+        var scalestep = rw_scalestep;
 
         if (stop > start) {
-            drawsegs_scale2[ds] = RMain.R_ScaleFromGlobalAngle(RMain.viewangle + RMain.xtoviewangle[stop]);
-            rw_scalestep = (drawsegs_scale2[ds] - rw_scale) / (stop - start);
-            drawsegs_scalestep[ds] = rw_scalestep;
+            var scale2 = RMain.R_ScaleFromGlobalAngle(viewangle + xtoviewangle[stop]);
+            drawsegs_scale2[ds] = scale2;
+            scalestep = (scale2 - scale) / (stop - start);
+            rw_scalestep = scalestep;
+            drawsegs_scalestep[ds] = scalestep;
         } else {
-            drawsegs_scale2[ds] = drawsegs_scale1[ds];
+            drawsegs_scale2[ds] = scale;
             // rw_scalestep keeps its old value, as in the C code.
         }
 
         // calculate texture boundaries
         //  and decide if floor / ceiling marks are needed
-        worldtop = PSetup.sectors_ceilingheight[frontsector] - viewz;
-        worldbottom = PSetup.sectors_floorheight[frontsector] - viewz;
+        var wtop = fceil - viewz;
+        var wbottom = ffloor - viewz;
+        var whigh = 0;
+        var wlow = 0;
 
-        midtexture = 0;
-        toptexture = 0;
-        bottomtexture = 0;
-        maskedtexture = false;
+        var mid_t = 0;
+        var top_t = 0;
+        var bottom_t = 0;
+        var masked = false;
+        var mfloor;
+        var mceil;
         drawsegs_maskedtexturecol[ds] = -1;
 
         if (backsector == -1) {
             // single sided line
-            midtexture = RData.texturetranslation[PSetup.sides_midtexture[sidedef]];
+            mid_t = texturetranslation[PSetup.sides_midtexture[sidedef]];
             // a single sided line is terminal, so it must mark ends
-            markfloor = true;
-            markceiling = true;
+            mfloor = true;
+            mceil = true;
             // (rw_midtexturemid only matters for texturing)
             drawsegs_silhouette[ds] = SIL_BOTH;
             drawsegs_sprtopclip[ds] = SCREENHEIGHTARRAY;
@@ -551,99 +593,101 @@ module RSegs {
             drawsegs_bsilheight[ds] = DoomType.MAXINT;
             drawsegs_tsilheight[ds] = DoomType.MININT;
         } else {
-            var ffloor = PSetup.sectors_floorheight[frontsector];
-            var fceil = PSetup.sectors_ceilingheight[frontsector];
-            var bfloor = PSetup.sectors_floorheight[backsector];
-            var bceil = PSetup.sectors_ceilingheight[backsector];
+            var bfloor = sectors_floorheight[backsector];
+            var bceil = sectors_ceilingheight[backsector];
 
             // two sided line
-            drawsegs_sprtopclip[ds] = -1;
-            drawsegs_sprbottomclip[ds] = -1;
-            drawsegs_silhouette[ds] = 0;
+            var sil = 0;
+            var sprtop = -1;
+            var sprbottom = -1;
 
             if (ffloor > bfloor) {
-                drawsegs_silhouette[ds] = SIL_BOTTOM;
+                sil = SIL_BOTTOM;
                 drawsegs_bsilheight[ds] = ffloor;
             } else if (bfloor > viewz) {
-                drawsegs_silhouette[ds] = SIL_BOTTOM;
+                sil = SIL_BOTTOM;
                 drawsegs_bsilheight[ds] = DoomType.MAXINT;
             }
 
             if (fceil < bceil) {
-                drawsegs_silhouette[ds] |= SIL_TOP;
+                sil |= SIL_TOP;
                 drawsegs_tsilheight[ds] = fceil;
             } else if (bceil < viewz) {
-                drawsegs_silhouette[ds] |= SIL_TOP;
+                sil |= SIL_TOP;
                 drawsegs_tsilheight[ds] = DoomType.MININT;
             }
 
             if (bceil <= ffloor) {
-                drawsegs_sprbottomclip[ds] = NEGONEARRAY;
+                sprbottom = NEGONEARRAY;
                 drawsegs_bsilheight[ds] = DoomType.MAXINT;
-                drawsegs_silhouette[ds] |= SIL_BOTTOM;
+                sil |= SIL_BOTTOM;
             }
 
             if (bfloor >= fceil) {
-                drawsegs_sprtopclip[ds] = SCREENHEIGHTARRAY;
+                sprtop = SCREENHEIGHTARRAY;
                 drawsegs_tsilheight[ds] = DoomType.MININT;
-                drawsegs_silhouette[ds] |= SIL_TOP;
+                sil |= SIL_TOP;
             }
+            drawsegs_silhouette[ds] = sil;
+            drawsegs_sprtopclip[ds] = sprtop;
+            drawsegs_sprbottomclip[ds] = sprbottom;
 
-            worldhigh = bceil - viewz;
-            worldlow = bfloor - viewz;
+            whigh = bceil - viewz;
+            wlow = bfloor - viewz;
 
             // hack to allow height changes in outdoor areas
-            if (PSetup.sectors_ceilingpic[frontsector] == RData.skyflatnum
-                && PSetup.sectors_ceilingpic[backsector] == RData.skyflatnum) {
-                worldtop = worldhigh;
+            if (sectors_ceilingpic[frontsector] == skyflatnum
+                && sectors_ceilingpic[backsector] == skyflatnum) {
+                wtop = whigh;
             }
 
-            if (worldlow != worldbottom
+            var samelight = sectors_lightlevel[backsector] == sectors_lightlevel[frontsector];
+            if (wlow != wbottom
                 || PSetup.sectors_floorpic[backsector] != PSetup.sectors_floorpic[frontsector]
-                || PSetup.sectors_lightlevel[backsector] != PSetup.sectors_lightlevel[frontsector]) {
-                markfloor = true;
+                || !samelight) {
+                mfloor = true;
             } else {
                 // same plane on both sides
-                markfloor = false;
+                mfloor = false;
             }
 
-            if (worldhigh != worldtop
-                || PSetup.sectors_ceilingpic[backsector] != PSetup.sectors_ceilingpic[frontsector]
-                || PSetup.sectors_lightlevel[backsector] != PSetup.sectors_lightlevel[frontsector]) {
-                markceiling = true;
+            if (whigh != wtop
+                || sectors_ceilingpic[backsector] != sectors_ceilingpic[frontsector]
+                || !samelight) {
+                mceil = true;
             } else {
                 // same plane on both sides
-                markceiling = false;
+                mceil = false;
             }
 
             if (bceil <= ffloor || bfloor >= fceil) {
                 // closed door
-                markceiling = true;
-                markfloor = true;
+                mceil = true;
+                mfloor = true;
             }
 
-            if (worldhigh < worldtop) {
+            if (whigh < wtop) {
                 // top texture
-                toptexture = RData.texturetranslation[PSetup.sides_toptexture[sidedef]];
+                top_t = texturetranslation[PSetup.sides_toptexture[sidedef]];
             }
-            if (worldlow > worldbottom) {
+            if (wlow > wbottom) {
                 // bottom texture
-                bottomtexture = RData.texturetranslation[PSetup.sides_bottomtexture[sidedef]];
+                bottom_t = texturetranslation[PSetup.sides_bottomtexture[sidedef]];
             }
 
             // allocate space for masked texture tables
             if (PSetup.sides_midtexture[sidedef] != 0) {
                 // masked midtexture
-                maskedtexture = true;
-                drawsegs_maskedtexturecol[ds] = lastopening - rw_x;
-                lastopening += rw_stopx - rw_x;
+                masked = true;
+                drawsegs_maskedtexturecol[ds] = lastopening - start;
+                lastopening += stopx - start;
             }
         }
 
         // calculate rw_offset (only needed for textured lines)
-        segtextured = midtexture != 0 || toptexture != 0 || bottomtexture != 0 || maskedtexture;
+        var textured = mid_t != 0 || top_t != 0 || bottom_t != 0 || masked;
 
-        if (segtextured) {
+        if (textured) {
             // (rw_offset and rw_centerangle only matter for texturing)
 
             // calculate light table
@@ -651,12 +695,12 @@ module RSegs {
             //  for horizontal / vertical / diagonal
             // OPTIMIZE: get rid of LIGHTSEGSHIFT globally
             if (RMain.fixedcolormap < 0) {
-                var lightnum = (PSetup.sectors_lightlevel[frontsector] >> RMain.LIGHTSEGSHIFT) + RMain.extralight;
+                var lightnum = (sectors_lightlevel[frontsector] >> RMain.LIGHTSEGSHIFT) + RMain.extralight;
 
                 var v2 = PSetup.segs_v2[curline];
-                if (PSetup.vertexes_y[v1] == PSetup.vertexes_y[v2]) {
+                if (vy[v1] == vy[v2]) {
                     lightnum--;
-                } else if (PSetup.vertexes_x[v1] == PSetup.vertexes_x[v2]) {
+                } else if (vx[v1] == vx[v2]) {
                     lightnum++;
                 }
 
@@ -674,67 +718,87 @@ module RSegs {
         //  of the view plane, it is definitely invisible
         //  and doesn't need to be marked.
 
-        if (PSetup.sectors_floorheight[frontsector] >= viewz) {
+        if (ffloor >= viewz) {
             // above view plane
-            markfloor = false;
+            mfloor = false;
         }
 
-        if (PSetup.sectors_ceilingheight[frontsector] <= viewz
-            && PSetup.sectors_ceilingpic[frontsector] != RData.skyflatnum) {
+        if (fceil <= viewz && sectors_ceilingpic[frontsector] != skyflatnum) {
             // below view plane
-            markceiling = false;
+            mceil = false;
         }
 
         // calculate incremental stepping values for texture edges
-        worldtop >>= 4;
-        worldbottom >>= 4;
+        wtop >>= 4;
+        wbottom >>= 4;
 
         var centeryfrac4 = RMain.centeryfrac >> 4;
-        topstep = -MFixed.FixedMul(rw_scalestep, worldtop);
-        topfrac = centeryfrac4 - MFixed.FixedMul(worldtop, rw_scale);
+        topstep = -MFixed.FixedMul(scalestep, wtop);
+        topfrac = centeryfrac4 - MFixed.FixedMul(wtop, scale);
 
-        bottomstep = -MFixed.FixedMul(rw_scalestep, worldbottom);
-        bottomfrac = centeryfrac4 - MFixed.FixedMul(worldbottom, rw_scale);
+        bottomstep = -MFixed.FixedMul(scalestep, wbottom);
+        bottomfrac = centeryfrac4 - MFixed.FixedMul(wbottom, scale);
 
         if (backsector != -1) {
-            worldhigh >>= 4;
-            worldlow >>= 4;
+            whigh >>= 4;
+            wlow >>= 4;
 
-            if (worldhigh < worldtop) {
-                pixhigh = centeryfrac4 - MFixed.FixedMul(worldhigh, rw_scale);
-                pixhighstep = -MFixed.FixedMul(rw_scalestep, worldhigh);
+            if (whigh < wtop) {
+                pixhigh = centeryfrac4 - MFixed.FixedMul(whigh, scale);
+                pixhighstep = -MFixed.FixedMul(scalestep, whigh);
             }
 
-            if (worldlow > worldbottom) {
-                pixlow = centeryfrac4 - MFixed.FixedMul(worldlow, rw_scale);
-                pixlowstep = -MFixed.FixedMul(rw_scalestep, worldlow);
+            if (wlow > wbottom) {
+                pixlow = centeryfrac4 - MFixed.FixedMul(wlow, scale);
+                pixlowstep = -MFixed.FixedMul(scalestep, wlow);
             }
         }
 
-        // render it
+        worldtop = wtop;
+        worldbottom = wbottom;
+        worldhigh = whigh;
+        worldlow = wlow;
+        midtexture = mid_t;
+        toptexture = top_t;
+        bottomtexture = bottom_t;
+        maskedtexture = masked;
+        segtextured = textured;
+        markfloor = mfloor;
+        markceiling = mceil;
+
+        // render it: R_StoreWallRange calls R_RenderSegLoop next.
         // (R_CheckPlane only splits visplanes' column lists, which
         // aren't kept here)
-        R_RenderSegLoop();
+        return true;
+    }
+
+    // The rest of R_StoreWallRange, after R_RenderSegLoop.
+    function R_StoreWallRangeFinish(start as Number) as Void {
+        var ds = ds_p;
+        var stopx = rw_stopx;
+        var masked = maskedtexture;
 
         // save sprite clipping info
-        if (((drawsegs_silhouette[ds] & SIL_TOP) != 0 || maskedtexture)
+        var sil2 = drawsegs_silhouette[ds];
+        if (((sil2 & SIL_TOP) != 0 || masked)
             && drawsegs_sprtopclip[ds] == -1) {
-            drawsegs_sprtopclip[ds] = saveClip(RPlane.ceilingclip, start, rw_stopx - start);
+            drawsegs_sprtopclip[ds] = saveClip(RPlane.ceilingclip, start, stopx - start);
         }
 
-        if (((drawsegs_silhouette[ds] & SIL_BOTTOM) != 0 || maskedtexture)
+        if (((sil2 & SIL_BOTTOM) != 0 || masked)
             && drawsegs_sprbottomclip[ds] == -1) {
-            drawsegs_sprbottomclip[ds] = saveClip(RPlane.floorclip, start, rw_stopx - start);
+            drawsegs_sprbottomclip[ds] = saveClip(RPlane.floorclip, start, stopx - start);
         }
 
-        if (maskedtexture && (drawsegs_silhouette[ds] & SIL_TOP) == 0) {
-            drawsegs_silhouette[ds] |= SIL_TOP;
+        if (masked && (sil2 & SIL_TOP) == 0) {
+            sil2 |= SIL_TOP;
             drawsegs_tsilheight[ds] = DoomType.MININT;
         }
-        if (maskedtexture && (drawsegs_silhouette[ds] & SIL_BOTTOM) == 0) {
-            drawsegs_silhouette[ds] |= SIL_BOTTOM;
+        if (masked && (sil2 & SIL_BOTTOM) == 0) {
+            sil2 |= SIL_BOTTOM;
             drawsegs_bsilheight[ds] = DoomType.MAXINT;
         }
+        drawsegs_silhouette[ds] = sil2;
         ds_p++;
     }
 }
