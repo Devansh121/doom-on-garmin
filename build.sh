@@ -19,7 +19,7 @@ GEN=generated/resources
 [ -x "$SDK/bin/monkeyc" ] || { echo "Connect IQ SDK not found, set CIQ_SDK" >&2; exit 1; }
 [ -f "$KEY" ] || { echo "developer key $KEY not found, see README" >&2; exit 1; }
 
-if [ ! -f "$GEN/maps.xml" ] || [ "$WAD" -nt "$GEN/maps.xml" ]; then
+if [ ! -f "$GEN/maps.xml" ] || [ "$WAD" -nt "$GEN/maps.xml" ] || [ tools/wad2ciq.py -nt "$GEN/maps.xml" ]; then
     [ -f "$WAD" ] || { echo "$WAD not found, set DOOM_WAD" >&2; exit 1; }
     python3 tools/wad2ciq.py "$WAD"
 fi

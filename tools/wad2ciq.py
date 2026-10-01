@@ -197,6 +197,8 @@ def convert_map(wad, mapname, textures, firstflat):
     out["nodes"] = unpack_records(lump["NODES"], "<12h2H")
     out["things"] = unpack_records(lump["THINGS"], "<5h")
     out["blockmap"] = unpack_records(lump["BLOCKMAP"], "<h")
+    # One number per byte, so rejectmatrix[pnum >> 3] indexes it like p_sight.c.
+    out["reject"] = list(lump["REJECT"])
 
     sides = []
     data = lump["SIDEDEFS"]

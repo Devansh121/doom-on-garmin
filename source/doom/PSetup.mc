@@ -121,6 +121,16 @@ module PSetup {
     // for thing chains: first mobj in each block, -1 for none
     var blocklinks as Array<Number> = [] as Array<Number>;
 
+    // REJECT
+    // For fast sight rejection.
+    // Speeds up enemy AI by skipping detailed
+    //  LineOf Sight calculation.
+    // Without special effect, this could be
+    //  used as a PVS lookup as well.
+    //
+    // one number per byte of the lump
+    var rejectmatrix as Array<Number> = [] as Array<Number>;
+
     // sectors[i].lines for every sector, back to back
     var linebuffer as Array<Number> = [] as Array<Number>;
 
@@ -635,7 +645,6 @@ module PSetup {
                 return slice(numsegs, CHUNK, new Lang.Method(PSetup, :P_LoadSegs));
 
             case 8:
-                // rejectmatrix isn't loaded until p_enemy needs it.
                 data = [] as Array<Number>;
                 P_GroupLines_Subsectors();
                 linebuffer = newArray(P_GroupLines_Count());
@@ -646,6 +655,10 @@ module PSetup {
                 return slice(numsectors, GROUPCHUNK, new Lang.Method(PSetup, :P_GroupLines_Sectors));
 
             case 10:
+                rejectmatrix = W_LumpData(DoomData.ML_REJECT);
+                return nextStep();
+
+            case 11:
                 if (first == 0) {
                     data = W_LumpData(DoomData.ML_THINGS);
                     numthings = data.size() / 5;
