@@ -492,6 +492,37 @@ module PSetup {
         linebufferfill = fill;
     }
 
+    // How many mobjs P_LoadThings will spawn: the same tests P_SpawnMapThing
+    // makes before spawning (single player, the current skill), so the
+    // thinker pool isn't sized for things that never appear. E1M6 has 463
+    // things in its lump but far fewer at any one skill, and every pool
+    // slot costs about 40 array entries.
+    function P_CountSpawnedThings(mt as Array<Number>) as Number {
+        var bit;
+        if (DoomStat.gameskill == DoomDef.sk_baby) {
+            bit = 1;
+        } else if (DoomStat.gameskill == DoomDef.sk_nightmare) {
+            bit = 4;
+        } else {
+            bit = 1 << (DoomStat.gameskill - 1);
+        }
+        var count = 1;  // the player
+        for (var i = 0; i < mt.size(); i += 5) {
+            var type = mt[i + 3];
+            var options = mt[i + 4];
+            if (type == 11 || type <= 4) {
+                continue;  // deathmatch and player starts
+            }
+            if (!DoomStat.netgame && (options & 16) != 0) {
+                continue;
+            }
+            if ((options & bit) != 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     //
     // P_SetupLevel
     //
@@ -513,8 +544,8 @@ module PSetup {
             DoomStat.playerstarts[i] = null;
         }
 
-        // Size the thinker pool for this map's things.
-        PTick.P_InitThinkers(W_LumpData(DoomData.ML_THINGS).size() / 5);
+        // Size the thinker pool for the things that will actually spawn.
+        PTick.P_InitThinkers(P_CountSpawnedThings(W_LumpData(DoomData.ML_THINGS)));
         PTick.leveltime = 0;
         setupstep = 0;
         setupindex = 0;
