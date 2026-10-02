@@ -4,8 +4,8 @@
 //	LineOfSight/Visibility checks, uses REJECT Lookup Table.
 //
 // divline_t is a 4 element Array<Number> indexed with PMapUtl.DL_*.
-// node_t starts with the same four fields, so where the C casts a node to
-// a divline_t the node's x, y, dx, dy are copied into nodediv instead.
+// node_t starts with the same four fields; where the C casts a node to a
+// divline_t, P_CrossBSPNode reads the node's x, y, dx, dy directly.
 //
 // Watchdog: P_CheckSight walks every BSP node and subsector the trace
 // passes through, so a long sight line across the map can get expensive.
@@ -28,9 +28,6 @@ module PSight {
     var t2y as Number = 0;
 
     var sightcounts as Array<Number> = [0, 0] as Array<Number>;
-
-    // (divline_t *)bsp, see the header comment
-    var nodediv as Array<Number> = [0, 0, 0, 0] as Array<Number>;
 
     //
     // P_DivlineSide
@@ -111,6 +108,9 @@ module PSight {
     // P_CrossSubsector
     // Returns true
     //  if strace crosses the given subsector successfully.
+    //
+    // P_CrossBSPNode has its own inlined copy of this, see there; this
+    // one is kept as the C reads.
     //
     function P_CrossSubsector(num as Number) as Boolean {
         // module arrays copied into locals for the loop
@@ -228,16 +228,6 @@ module PSight {
         return true;
     }
 
-    // Copies node bsp into nodediv, for the (divline_t *)bsp casts.
-    function nodeDivline(bsp as Number) as Array<Number> {
-        var dl = nodediv;
-        dl[PMapUtl.DL_X] = PSetup.nodes_x[bsp];
-        dl[PMapUtl.DL_Y] = PSetup.nodes_y[bsp];
-        dl[PMapUtl.DL_DX] = PSetup.nodes_dx[bsp];
-        dl[PMapUtl.DL_DY] = PSetup.nodes_dy[bsp];
-        return dl;
-    }
-
     //
     // P_CrossBSPNode
     // Returns true
@@ -250,51 +240,206 @@ module PSight {
     //
     // Entries are a node/subsector number to cross, or -(node * 2 + side) - 2
     // for "the start side of node is done, check the partition".
+    //
+    // Every monster looking for the player runs this, so it is written for
+    // the watch, where a call or a module variable read costs tens of
+    // microseconds: P_CrossSubsector and the P_DivlineSide tests against
+    // the nodes and strace are inlined, with the arrays the walk touches on
+    // every node and line in locals. Lines that actually cross the trace
+    // (rare next to the ones that don't) go through P_DivlineSide,
+    // P_InterceptVector2 and the module variables like the C. All locals
+    // are declared up front and reused: the VM stack only holds a couple
+    // of hundred slots and this sits at the top of A_Chase's call chain.
+    //
     const MAXSIGHTSTACK = 128;
     var sightstack as Array<Number> = new [MAXSIGHTSTACK] as Array<Number>;
+
+    // divl in P_CrossSubsector, reused between calls
+    var crossdiv as Array<Number> = [0, 0, 0, 0] as Array<Number>;
 
     function P_CrossBSPNode(bspnum as Number) as Boolean {
         var stack = sightstack;
         var children = PSetup.nodes_children;
-        stack[0] = bspnum;
+        var nodes_x = PSetup.nodes_x;
+        var nodes_y = PSetup.nodes_y;
+        var nodes_dx = PSetup.nodes_dx;
+        var nodes_dy = PSetup.nodes_dy;
+        var segs_linedef = PSetup.segs_linedef;
+        var lines_validcount = PSetup.lines_validcount;
+        var lines_v1 = PSetup.lines_v1;
+        var lines_v2 = PSetup.lines_v2;
+        var vx = PSetup.vertexes_x;
+        var vy = PSetup.vertexes_y;
+        var valid = RMain.validcount;
+        var sx = strace[PMapUtl.DL_X];
+        var sy = strace[PMapUtl.DL_Y];
+        var ex = t2x;
+        var ey = t2y;
+        // P_DivlineSide(x, y, strace) for a strace that isn't axis
+        // aligned only needs these
+        var sdxh = strace[PMapUtl.DL_DX];
+        var sdyh = strace[PMapUtl.DL_DY];
+        var straight = sdxh == 0 || sdyh == 0;
+        sdxh >>= MFixed.FRACBITS;
+        sdyh >>= MFixed.FRACBITS;
+
         var sp = 1;
+        var side;
+        var s;
+        var nx;
+        var ny;
+        var ndx;
+        var ndy;
+        var count;
+        var seg;
+        var line;
+        var v1;
+        var v2;
+
+        stack[0] = bspnum;
 
         while (sp > 0) {
             sp--;
             bspnum = stack[sp];
 
             if (bspnum < -1) {
-                var e = -bspnum - 2;
-                var bsp = e >> 1;
-                var side = e & 1;
+                bspnum = -bspnum - 2;
+                side = bspnum & 1;
+                bspnum >>= 1;
 
                 // the partition plane is crossed here
-                if (side == P_DivlineSide(t2x, t2y, nodeDivline(bsp))) {
+                // (side == P_DivlineSide(t2x, t2y, bsp), inlined)
+                nx = nodes_x[bspnum];
+                ny = nodes_y[bspnum];
+                ndx = nodes_dx[bspnum];
+                ndy = nodes_dy[bspnum];
+                if (ndx == 0) {
+                    if (ex == nx) {
+                        s = 2;
+                    } else if (ex <= nx) {
+                        s = ndy > 0 ? 1 : 0;
+                    } else {
+                        s = ndy < 0 ? 1 : 0;
+                    }
+                } else if (ndy == 0) {
+                    // (x, not y, as in the original)
+                    if (ex == ny) {
+                        s = 2;
+                    } else if (ey <= ny) {
+                        s = ndx < 0 ? 1 : 0;
+                    } else {
+                        s = ndx > 0 ? 1 : 0;
+                    }
+                } else {
+                    // left = ndx, right = ndy from here on
+                    ndx = (ndy >> MFixed.FRACBITS) * ((ex - nx) >> MFixed.FRACBITS);
+                    ndy = ((ey - ny) >> MFixed.FRACBITS) * (nodes_dx[bspnum] >> MFixed.FRACBITS);
+                    if (ndy < ndx) {
+                        s = 0;
+                    } else if (ndx == ndy) {
+                        s = 2;
+                    } else {
+                        s = 1;
+                    }
+                }
+                if (side == s) {
                     // the line doesn't touch the other side
                     continue;
                 }
 
                 // cross the ending side
-                stack[sp] = children[bsp * 2 + (side ^ 1)];
+                stack[sp] = children[bspnum * 2 + (side ^ 1)];
                 sp++;
                 continue;
             }
 
             if ((bspnum & DoomData.NF_SUBSECTOR) != 0) {
-                var crossed;
-                if (bspnum == -1) {
-                    crossed = P_CrossSubsector(0);
-                } else {
-                    crossed = P_CrossSubsector(bspnum & ~DoomData.NF_SUBSECTOR);
+                // P_CrossSubsector(bspnum == -1 ? 0 : bspnum & ~NF_SUBSECTOR),
+                // inlined
+                bspnum = bspnum == -1 ? 0 : bspnum & ~DoomData.NF_SUBSECTOR;
+
+                if (bspnum >= PSetup.numsubsectors) {
+                    ISystem.I_Error("P_CrossSubsector: ss " + bspnum + " with numss = " + PSetup.numsubsectors);
                 }
-                if (!crossed) {
-                    return false;
+
+                // check lines
+                count = PSetup.subsectors_numlines[bspnum];
+                seg = PSetup.subsectors_firstline[bspnum];
+
+                for (; count != 0; seg++, count--) {
+                    line = segs_linedef[seg];
+
+                    // allready checked other side?
+                    if (lines_validcount[line] == valid) {
+                        continue;
+                    }
+
+                    lines_validcount[line] = valid;
+
+                    v1 = lines_v1[line];
+                    v2 = lines_v2[line];
+                    if (straight) {
+                        side = P_DivlineSide(vx[v1], vy[v1], strace);
+                        s = P_DivlineSide(vx[v2], vy[v2], strace);
+                    } else {
+                        // P_DivlineSide(x, y, strace), inlined; left in
+                        // ndx, right in ndy
+                        ndx = sdyh * ((vx[v1] - sx) >> MFixed.FRACBITS);
+                        ndy = ((vy[v1] - sy) >> MFixed.FRACBITS) * sdxh;
+                        side = ndy < ndx ? 0 : (ndx == ndy ? 2 : 1);
+                        ndx = sdyh * ((vx[v2] - sx) >> MFixed.FRACBITS);
+                        ndy = ((vy[v2] - sy) >> MFixed.FRACBITS) * sdxh;
+                        s = ndy < ndx ? 0 : (ndx == ndy ? 2 : 1);
+                    }
+
+                    // line isn't crossed?
+                    if (side == s) {
+                        continue;
+                    }
+
+                    if (!P_CrossLine(seg, line, v1, v2)) {
+                        return false;
+                    }
                 }
+                // passed the subsector ok
                 continue;
             }
 
             // decide which side the start point is on
-            var side = P_DivlineSide(strace[PMapUtl.DL_X], strace[PMapUtl.DL_Y], nodeDivline(bspnum));
+            // (P_DivlineSide(strace x, y, bspnum), inlined)
+            nx = nodes_x[bspnum];
+            ny = nodes_y[bspnum];
+            ndx = nodes_dx[bspnum];
+            ndy = nodes_dy[bspnum];
+            if (ndx == 0) {
+                if (sx == nx) {
+                    side = 2;
+                } else if (sx <= nx) {
+                    side = ndy > 0 ? 1 : 0;
+                } else {
+                    side = ndy < 0 ? 1 : 0;
+                }
+            } else if (ndy == 0) {
+                // (x, not y, as in the original)
+                if (sx == ny) {
+                    side = 2;
+                } else if (sy <= ny) {
+                    side = ndx < 0 ? 1 : 0;
+                } else {
+                    side = ndx > 0 ? 1 : 0;
+                }
+            } else {
+                // left = ndx, right = ndy from here on
+                ndx = (ndy >> MFixed.FRACBITS) * ((sx - nx) >> MFixed.FRACBITS);
+                ndy = ((sy - ny) >> MFixed.FRACBITS) * (nodes_dx[bspnum] >> MFixed.FRACBITS);
+                if (ndy < ndx) {
+                    side = 0;
+                } else if (ndx == ndy) {
+                    side = 2;
+                } else {
+                    side = 1;
+                }
+            }
             if (side == 2) {
                 side = 0;   // an "on" should cross both sides
             }
@@ -303,6 +448,88 @@ module PSight {
             stack[sp] = -(bspnum * 2 + side) - 2;
             stack[sp + 1] = children[bspnum * 2 + side];
             sp += 2;
+        }
+        return true;
+    }
+
+    // The rest of P_CrossSubsector's line loop, for a line (of seg, from
+    // vertex v1 to v2) whose ends are on opposite sides of strace.
+    // Returns false if it blocks the sight line.
+    function P_CrossLine(seg as Number, line as Number, v1 as Number, v2 as Number) as Boolean {
+        var vx = PSetup.vertexes_x;
+        var vy = PSetup.vertexes_y;
+        var divl = crossdiv;
+
+        divl[PMapUtl.DL_X] = vx[v1];
+        divl[PMapUtl.DL_Y] = vy[v1];
+        divl[PMapUtl.DL_DX] = vx[v2] - vx[v1];
+        divl[PMapUtl.DL_DY] = vy[v2] - vy[v1];
+        var s1 = P_DivlineSide(strace[PMapUtl.DL_X], strace[PMapUtl.DL_Y], divl);
+        var s2 = P_DivlineSide(t2x, t2y, divl);
+
+        // line isn't crossed?
+        if (s1 == s2) {
+            return true;
+        }
+
+        // stop because it is not two sided anyway
+        // might do this after updating validcount?
+        if ((PSetup.lines_flags[line] & DoomData.ML_TWOSIDED) == 0) {
+            return false;
+        }
+
+        // crosses a two sided line
+        var floorheight = PSetup.sectors_floorheight;
+        var ceilingheight = PSetup.sectors_ceilingheight;
+        var front = PSetup.segs_frontsector[seg];
+        var back = PSetup.segs_backsector[seg];
+
+        // no wall to block sight with?
+        if (floorheight[front] == floorheight[back]
+            && ceilingheight[front] == ceilingheight[back]) {
+            return true;
+        }
+
+        // possible occluder
+        // because of ceiling height differences
+        var opentop;
+        if (ceilingheight[front] < ceilingheight[back]) {
+            opentop = ceilingheight[front];
+        } else {
+            opentop = ceilingheight[back];
+        }
+
+        // because of ceiling height differences
+        var openbottom;
+        if (floorheight[front] > floorheight[back]) {
+            openbottom = floorheight[front];
+        } else {
+            openbottom = floorheight[back];
+        }
+
+        // quick test for totally closed doors
+        if (openbottom >= opentop) {
+            return false;   // stop
+        }
+
+        var frac = P_InterceptVector2(strace, divl);
+
+        if (floorheight[front] != floorheight[back]) {
+            var slope = MFixed.FixedDiv(openbottom - sightzstart, frac);
+            if (slope > bottomslope) {
+                bottomslope = slope;
+            }
+        }
+
+        if (ceilingheight[front] != ceilingheight[back]) {
+            var slope = MFixed.FixedDiv(opentop - sightzstart, frac);
+            if (slope < topslope) {
+                topslope = slope;
+            }
+        }
+
+        if (topslope <= bottomslope) {
+            return false;   // stop
         }
         return true;
     }
