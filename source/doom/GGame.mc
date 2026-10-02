@@ -3,14 +3,17 @@
 // DESCRIPTION:  none
 //
 // Only the parts that set the game and the players up for a level are
-// here: G_PlayerReborn, G_InitNew and G_DoLoadLevel. There are no demos,
-// savegames, netgames or menus on the watch.
+// here: G_PlayerReborn, G_InitNew and G_DoLoadLevel, plus demo playback
+// (see DEMO PLAYBACK below). There's no demo recording, savegames,
+// netgames or menus on the watch.
 //
 // P_SetupLevel can't load a map in one callback (see PSetup), so
 // G_DoLoadLevel only starts it; the caller then runs
 // PSetup.P_SetupLevelStep until it returns true.
 
 import Toybox.Lang;
+import Toybox.System;
+import Toybox.WatchUi;
 
 (:extendedCode)
 module GGame {
@@ -332,6 +335,143 @@ module GGame {
         // (the sky texture is picked by tools/wad2ciq.py)
 
         G_DoLoadLevel();
+    }
+
+    //
+    // DEMO PLAYBACK
+    // G_DeferedPlayDemo, G_DoPlayDemo, G_ReadDemoTiccmd and the playback
+    // half of G_CheckDemoStatus. tools/wad2ciq.py turns the DEMO lumps
+    // into jsonData: the 13 header bytes one per number, then one number
+    // per ticcmd with its 4 bytes packed little endian, ending with
+    // DEMOMARKER. demo_p indexes those numbers.
+    //
+    const DEMOMARKER = 0x80;
+
+    // gameaction_t ga_playdemo
+    const ga_playdemo = 4;
+
+    var demoplayback as Boolean = false;
+    var demobuffer as Array<Number> = [] as Array<Number>;
+    var demo_p as Number = 0;
+    // DEMO1..3 by number: Monkey C can't look Rez ids up by name
+    var defdemoname as Number = 0;
+    // demoplayback is cleared once the stream ends, so keep track of it
+    var demotics as Number = 0;
+
+    //
+    // G_PlayDemo
+    //
+    function G_DeferedPlayDemo(name as Number) as Void {
+        defdemoname = name;
+        gameaction = ga_playdemo;
+    }
+
+    function W_DemoLump(name as Number) as ResourceId {
+        if (name == 2) {
+            return Rez.JsonData.demo2;
+        }
+        if (name == 3) {
+            return Rez.JsonData.demo3;
+        }
+        return Rez.JsonData.demo1;
+    }
+
+    // *demo_p++: Monkey C has no ++ inside an expression.
+    function D_ReadByte() as Number {
+        var v = demobuffer[demo_p];
+        demo_p++;
+        return v;
+    }
+
+    //
+    // G_DoPlayDemo
+    //
+    // Like G_InitNew it only starts loading the level: the caller runs
+    // PSetup.P_SetupLevelStep until it returns true.
+    //
+    function G_DoPlayDemo() as Void {
+        var skill;
+        var i;
+        var episode;
+        var map;
+
+        gameaction = ga_nothing;
+        demobuffer = WatchUi.loadResource(W_DemoLump(defdemoname)) as Array<Number>;
+        demo_p = 0;
+        // linuxdoom-1.10 only takes VERSION (110) here, but its game code
+        // is the same as 1.9's and plays 1.9 demos, which is what the
+        // shareware IWAD's DEMO lumps are. So take 109 as well.
+        var version = D_ReadByte();
+        if (version != 110 && version != 109) {
+            System.println("Demo is from a different game version!");
+            gameaction = ga_nothing;
+            return;
+        }
+
+        skill = D_ReadByte();
+        episode = D_ReadByte();
+        map = D_ReadByte();
+        DoomStat.deathmatch = D_ReadByte() != 0;
+        DoomStat.respawnparm = D_ReadByte() != 0;
+        DoomStat.fastparm = D_ReadByte() != 0;
+        DoomStat.nomonsters = D_ReadByte() != 0;
+        DPlayer.consoleplayer = D_ReadByte();
+
+        for (i = 0; i < DoomStat.MAXPLAYERS; i++) {
+            DPlayer.playeringame[i] = D_ReadByte() != 0;
+        }
+        // (netdemos can't be played: the watch only runs player 0)
+
+        // don't spend a lot of time in loadlevel
+        G_InitNew(skill, episode, map);
+
+        demoplayback = true;
+        demotics = 0;
+    }
+
+    //
+    // DEMO RECORDING
+    //
+    function G_ReadDemoTiccmd(player as Number) as Void {
+        var v = demobuffer[demo_p];
+        if ((v & 0xFF) == DEMOMARKER) {
+            // end of demo data stream
+            G_CheckDemoStatus();
+            return;
+        }
+        demo_p++;
+        // the four bytes of the number, as signed / unsigned chars
+        DPlayer.players_cmd_forwardmove[player] = (v << 24) >> 24;
+        DPlayer.players_cmd_sidemove[player] = (v << 16) >> 24;
+        // ((unsigned char)*demo_p++)<<8 into a short
+        DPlayer.players_cmd_angleturn[player] = (((v >> 16) & 0xFF) << 24) >> 16;
+        DPlayer.players_cmd_buttons[player] = (v >> 24) & 0xFF;
+        demotics++;
+    }
+
+    //
+    // G_CheckDemoStatus
+    // Called after a death or level completion to allow demos to be ended
+    // Returns true if a new demo loop action will take place
+    //
+    function G_CheckDemoStatus() as Boolean {
+        if (demoplayback) {
+            demobuffer = [] as Array<Number>;
+            demoplayback = false;
+            DoomStat.netgame = false;
+            DoomStat.deathmatch = false;
+            DPlayer.playeringame[1] = false;
+            DPlayer.playeringame[2] = false;
+            DPlayer.playeringame[3] = false;
+            DoomStat.respawnparm = false;
+            DoomStat.fastparm = false;
+            DoomStat.nomonsters = false;
+            DPlayer.consoleplayer = 0;
+            DMain.D_AdvanceDemo();
+            return true;
+        }
+
+        return false;
     }
 
     //
