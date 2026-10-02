@@ -132,8 +132,20 @@ module RSegs {
             // R_DrawPlanes' check, made before writing past the end
             ISystem.I_Error("R_StoreWallRange: opening overflow");
         }
+        // The C lists are shorts, and near a wall a column's clip can be far
+        // off screen (topfrac gives yl in the thousands, or very negative).
+        // Off-screen values clip a sprite the same as -1 / viewheight do
+        // (all of the column visible, or none of it), so they're clamped to
+        // that range to fit the bytes.
+        var vh = RMain.viewheight;
         for (var i = 0; i < count; i++) {
-            o[p + i] = clip[start + i] + 1;
+            var c = clip[start + i];
+            if (c < -1) {
+                c = -1;
+            } else if (c > vh) {
+                c = vh;
+            }
+            o[p + i] = c + 1;
         }
         lastopening = p + count;
         return p - start;
