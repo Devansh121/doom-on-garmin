@@ -309,6 +309,32 @@ def convert_map(wad, mapname, textures, firstflat):
     return out
 
 
+def convert_demos(wad):
+    """DEMO1..DEMO3 for g_game.c's demo playback. Each becomes the 13
+    header bytes (version, skill, episode, map, deathmatch, respawnparm,
+    fastparm, nomonsters, consoleplayer, playeringame[4]), one number
+    each, then one number per ticcmd: its 4 bytes (forwardmove,
+    sidemove, angleturn >> 8, buttons) packed little endian, a quarter of
+    the RAM one number per byte would take. The DEMOMARKER byte (0x80)
+    that ends the stream becomes a last number of 0x80, so its low byte
+    is checked the way G_ReadDemoTiccmd checks *demo_p."""
+    out = {}
+    for n in range(1, 4):
+        i = wad.num_for_name(f"DEMO{n}")
+        if i < 0:
+            continue
+        data = wad.lump(i)
+        values = list(data[:13])
+        p = 13
+        while data[p] != 0x80:
+            (v,) = struct.unpack_from("<i", data, p)
+            values.append(v)
+            p += 4
+        values.append(0x80)
+        out[f"demo{n}"] = values
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("wad", help="path to doom1.wad")
@@ -344,6 +370,12 @@ def main():
         cases.append(f'        if (name.equals("{mapname}")) {{\n            return [{ids}];\n        }}')
 
     for name, values in convert_colors(wad, args.gamma).items():
+        with open(os.path.join(resdir, f"{name}.json"), "w") as f:
+            json.dump(values, f, separators=(",", ":"))
+        entries.append(f'    <jsonData id="{name}" filename="{name}.json" />')
+        print(f"{name}: {len(values)} values")
+
+    for name, values in convert_demos(wad).items():
         with open(os.path.join(resdir, f"{name}.json"), "w") as f:
             json.dump(values, f, separators=(",", ":"))
         entries.append(f'    <jsonData id="{name}" filename="{name}.json" />')
