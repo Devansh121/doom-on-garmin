@@ -149,24 +149,27 @@ module RMain {
     // Returns side 0 (front) or 1 (back).
     //
     function R_PointOnSide(x as Number, y as Number, node as Number) as Number {
-        var ndx = PSetup.nodes_dx[node];
-        var ndy = PSetup.nodes_dy[node];
+        // node->dx, dy, x, y unpacked (see PSetup)
+        var ndy = PSetup.nodes_dxdy[node];
+        var ndx = ndy << 16;
+        ndy = ndy & ~0xffff;
 
         if (ndx == 0) {
-            if (x <= PSetup.nodes_x[node]) {
+            if (x <= (PSetup.nodes_xy[node] << 16)) {
                 return ndy > 0 ? 1 : 0;
             }
             return ndy < 0 ? 1 : 0;
         }
         if (ndy == 0) {
-            if (y <= PSetup.nodes_y[node]) {
+            if (y <= (PSetup.nodes_xy[node] & ~0xffff)) {
                 return ndx < 0 ? 1 : 0;
             }
             return ndx > 0 ? 1 : 0;
         }
 
-        var dx = (x - PSetup.nodes_x[node]);
-        var dy = (y - PSetup.nodes_y[node]);
+        var dx = PSetup.nodes_xy[node];
+        var dy = (y - (dx & ~0xffff));
+        dx = (x - (dx << 16));
 
         // Try to quickly decide by looking at sign bits.
         if (((ndy ^ ndx ^ dx ^ dy) & 0x80000000) != 0) {
@@ -196,11 +199,11 @@ module RMain {
 
     function R_PointOnSegSide(x as Number, y as Number, line as Number) as Number {
         // the vertexes are packed x | y << 16 (see PSetup)
-        var lx = PSetup.vertexes_xy[PSetup.segs_v1[line]];
+        var lx = PSetup.vertexes_xy[PSetup.segs_v1v2[line] & 0xffff];
         var ly = lx & ~0xffff;
         lx = lx << 16;
 
-        var ldx = PSetup.vertexes_xy[PSetup.segs_v2[line]];
+        var ldx = PSetup.vertexes_xy[PSetup.segs_v1v2[line] >> 16];
         var ldy = (ldx & ~0xffff) - ly;
         ldx = (ldx << 16) - lx;
 
@@ -613,7 +616,7 @@ module RMain {
 
         while ((nodenum & DoomData.NF_SUBSECTOR) == 0) {
             var side = R_PointOnSide(x, y, nodenum);
-            nodenum = PSetup.nodes_children[nodenum * 2 + side];
+            nodenum = (PSetup.nodes_children[nodenum] >> (side << 4)) & 0xffff;
         }
 
         return nodenum & ~DoomData.NF_SUBSECTOR;

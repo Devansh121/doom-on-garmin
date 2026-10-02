@@ -43,14 +43,15 @@ module PSetup {
     var vertexes_xy as Array<Number> = [] as Array<Number>;
 
     var numsegs as Number = 0;
-    var segs_v1 as Array<Number> = [] as Array<Number>;
-    var segs_v2 as Array<Number> = [] as Array<Number>;
-    var segs_offset as Array<Number> = [] as Array<Number>;
-    var segs_angle as Array<Number> = [] as Array<Number>;
-    var segs_sidedef as Array<Number> = [] as Array<Number>;
-    var segs_linedef as Array<Number> = [] as Array<Number>;
-    var segs_frontsector as Array<Number> = [] as Array<Number>;
-    var segs_backsector as Array<Number> = [] as Array<Number>;
+    // v1 | v2 << 16
+    var segs_v1v2 as Array<Number> = [] as Array<Number>;
+    // offset | angle << 16 (both are shorts << 16 in seg_t, so offset is
+    // w << 16 and angle w & ~0xffff)
+    var segs_offsetangle as Array<Number> = [] as Array<Number>;
+    // sidedef | linedef << 16
+    var segs_sidedeflinedef as Array<Number> = [] as Array<Number>;
+    // frontsector | backsector << 16, backsector -1 for none
+    var segs_sectors as Array<Number> = [] as Array<Number>;
 
     var numsectors as Number = 0;
     var sectors_floorheight as Array<Number> = [] as Array<Number>;
@@ -81,17 +82,19 @@ module PSetup {
 
     var numsubsectors as Number = 0;
     var subsectors_sector as Array<Number> = [] as Array<Number>;
-    var subsectors_numlines as Array<Number> = [] as Array<Number>;
-    var subsectors_firstline as Array<Number> = [] as Array<Number>;
+    // firstline | numlines << 16
+    var subsectors_lines as Array<Number> = [] as Array<Number>;
 
     var numnodes as Number = 0;
-    var nodes_x as Array<Number> = [] as Array<Number>;
-    var nodes_y as Array<Number> = [] as Array<Number>;
-    var nodes_dx as Array<Number> = [] as Array<Number>;
-    var nodes_dy as Array<Number> = [] as Array<Number>;
-    // bbox[2][4] per node, flattened: nodes_bbox[i*8 + side*4 + k]
+    // x | y << 16 and dx | dy << 16, in map units
+    var nodes_xy as Array<Number> = [] as Array<Number>;
+    var nodes_dxdy as Array<Number> = [] as Array<Number>;
+    // bbox[2][4] per node, top | bottom << 16 then left | right << 16 for
+    // each side, in map units: bbox[side][k] is in nodes_bbox[i*4 +
+    // side*2 + (k >> 1)]
     var nodes_bbox as Array<Number> = [] as Array<Number>;
-    // children[2] per node: nodes_children[i*2 + side]
+    // children[0] | children[1] << 16, both unsigned: children[side] is
+    // (w >> (side << 4)) & 0xffff
     var nodes_children as Array<Number> = [] as Array<Number>;
 
     var numlines as Number = 0;
@@ -439,25 +442,16 @@ module PSetup {
             case MapLumps.LINES_SECTORS:
                 lines_sectors = a;
                 break;
-            case MapLumps.SUBSECTORS_NUMLINES:
-                subsectors_numlines = a;
+            case MapLumps.SUBSECTORS_LINES:
+                subsectors_lines = a;
                 numsubsectors = a.size();
                 break;
-            case MapLumps.SUBSECTORS_FIRSTLINE:
-                subsectors_firstline = a;
-                break;
-            case MapLumps.NODES_X:
-                nodes_x = a;
+            case MapLumps.NODES_XY:
+                nodes_xy = a;
                 numnodes = a.size();
                 break;
-            case MapLumps.NODES_Y:
-                nodes_y = a;
-                break;
-            case MapLumps.NODES_DX:
-                nodes_dx = a;
-                break;
-            case MapLumps.NODES_DY:
-                nodes_dy = a;
+            case MapLumps.NODES_DXDY:
+                nodes_dxdy = a;
                 break;
             case MapLumps.NODES_BBOX:
                 nodes_bbox = a;
@@ -465,30 +459,18 @@ module PSetup {
             case MapLumps.NODES_CHILDREN:
                 nodes_children = a;
                 break;
-            case MapLumps.SEGS_V1:
-                segs_v1 = a;
+            case MapLumps.SEGS_V1V2:
+                segs_v1v2 = a;
                 numsegs = a.size();
                 break;
-            case MapLumps.SEGS_V2:
-                segs_v2 = a;
+            case MapLumps.SEGS_OFFSETANGLE:
+                segs_offsetangle = a;
                 break;
-            case MapLumps.SEGS_OFFSET:
-                segs_offset = a;
+            case MapLumps.SEGS_SIDEDEFLINEDEF:
+                segs_sidedeflinedef = a;
                 break;
-            case MapLumps.SEGS_ANGLE:
-                segs_angle = a;
-                break;
-            case MapLumps.SEGS_SIDEDEF:
-                segs_sidedef = a;
-                break;
-            case MapLumps.SEGS_LINEDEF:
-                segs_linedef = a;
-                break;
-            case MapLumps.SEGS_FRONTSECTOR:
-                segs_frontsector = a;
-                break;
-            case MapLumps.SEGS_BACKSECTOR:
-                segs_backsector = a;
+            case MapLumps.SEGS_SECTORS:
+                segs_sectors = a;
                 break;
             case MapLumps.REJECT:
                 rejectmatrix = a;
@@ -521,14 +503,10 @@ module PSetup {
     function P_FreeLevel() as Void {
         var none = [] as Array<Number>;
         vertexes_xy = none;
-        segs_v1 = none;
-        segs_v2 = none;
-        segs_offset = none;
-        segs_angle = none;
-        segs_sidedef = none;
-        segs_linedef = none;
-        segs_frontsector = none;
-        segs_backsector = none;
+        segs_v1v2 = none;
+        segs_offsetangle = none;
+        segs_sidedeflinedef = none;
+        segs_sectors = none;
         sectors_floorheight = none;
         sectors_ceilingheight = none;
         sectors_floorpic = none;
@@ -547,12 +525,9 @@ module PSetup {
         sectors_soundtarget = none;
         sectors_lines = none;
         subsectors_sector = none;
-        subsectors_numlines = none;
-        subsectors_firstline = none;
-        nodes_x = none;
-        nodes_y = none;
-        nodes_dx = none;
-        nodes_dy = none;
+        subsectors_lines = none;
+        nodes_xy = none;
+        nodes_dxdy = none;
         nodes_bbox = none;
         nodes_children = none;
         lines_v1v2 = none;

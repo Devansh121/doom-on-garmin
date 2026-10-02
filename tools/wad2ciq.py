@@ -463,18 +463,20 @@ def level_arrays(raw):
 
     # P_LoadSubsectors
     mss = raw["ssectors"]
-    out["subsectors_numlines"] = mss[0::2]
-    out["subsectors_firstline"] = mss[1::2]
+    # firstline | numlines << 16
+    out["subsectors_lines"] = [pack16(first, num) for num, first in zip(mss[0::2], mss[1::2])]
 
     # P_LoadNodes
     mn = raw["nodes"]
     numnodes = len(mn) // 14
-    out["nodes_x"] = [s32(x << FRACBITS) for x in mn[0::14]]
-    out["nodes_y"] = [s32(x << FRACBITS) for x in mn[1::14]]
-    out["nodes_dx"] = [s32(x << FRACBITS) for x in mn[2::14]]
-    out["nodes_dy"] = [s32(x << FRACBITS) for x in mn[3::14]]
-    out["nodes_bbox"] = [s32(mn[i * 14 + 4 + k] << FRACBITS) for i in range(numnodes) for k in range(8)]
-    out["nodes_children"] = [mn[i * 14 + 12 + j] for i in range(numnodes) for j in range(2)]
+    # x | y << 16 and dx | dy << 16, in map units like the vertexes
+    out["nodes_xy"] = [pack16(x, y) for x, y in zip(mn[0::14], mn[1::14])]
+    out["nodes_dxdy"] = [pack16(dx, dy) for dx, dy in zip(mn[2::14], mn[3::14])]
+    # bbox[side] as top | bottom << 16, then left | right << 16, in map
+    # units: nodes_bbox[node * 4 + side * 2 + (k >> 1)]
+    out["nodes_bbox"] = [pack16(mn[i * 14 + 4 + k], mn[i * 14 + 5 + k]) for i in range(numnodes) for k in range(0, 8, 2)]
+    # children[0] | children[1] << 16, both unsigned (NF_SUBSECTOR is 0x8000)
+    out["nodes_children"] = [pack16(mn[i * 14 + 12], mn[i * 14 + 13]) for i in range(numnodes)]
 
     # P_LoadSegs
     ml = raw["segs"]
@@ -491,18 +493,19 @@ def level_arrays(raw):
             seg_back.append(side_sector[sidenum[linedef * 2 + (side ^ 1)]])
         else:
             seg_back.append(-1)
-    out["segs_v1"] = ml[0::6]
-    out["segs_v2"] = ml[1::6]
-    out["segs_offset"] = [s32(o << 16) for o in ml[5::6]]
-    out["segs_angle"] = [s32(a << 16) for a in ml[2::6]]
-    out["segs_sidedef"] = seg_sidedef
-    out["segs_linedef"] = ml[3::6]
-    out["segs_frontsector"] = seg_front
-    out["segs_backsector"] = seg_back
+    # v1 | v2 << 16
+    out["segs_v1v2"] = [pack16(a, b) for a, b in zip(ml[0::6], ml[1::6])]
+    # offset | angle << 16: offset (<< 16) is w << 16, angle (<< 16) is
+    # w & ~0xffff
+    out["segs_offsetangle"] = [pack16(o, a) for o, a in zip(ml[5::6], ml[2::6])]
+    # sidedef | linedef << 16
+    out["segs_sidedeflinedef"] = [pack16(sd, ld) for sd, ld in zip(seg_sidedef, ml[3::6])]
+    # frontsector | backsector << 16, backsector -1 for none
+    out["segs_sectors"] = [pack16(f, b) for f, b in zip(seg_front, seg_back)]
 
     # P_GroupLines
     # look up sector number for each subsector
-    out["subsectors_sector"] = [side_sector[seg_sidedef[first]] for first in out["subsectors_firstline"]]
+    out["subsectors_sector"] = [side_sector[seg_sidedef[first]] for first in mss[1::2]]
 
     # count number of lines in each sector
     linecount = [0] * numsectors

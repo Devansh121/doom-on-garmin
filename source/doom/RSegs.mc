@@ -571,8 +571,10 @@ module RSegs {
         var curline = RBsp.curline;
         var frontsector = RBsp.frontsector;
         var backsector = RBsp.backsector;
-        var sidedef = PSetup.segs_sidedef[curline];
-        var linedef = PSetup.segs_linedef[curline];
+        // sidedef | linedef << 16 (see PSetup)
+        var sidedef = PSetup.segs_sidedeflinedef[curline];
+        var linedef = sidedef >> 16;
+        sidedef = sidedef & 0xffff;
         RBsp.sidedef = sidedef;
         RBsp.linedef = linedef;
         var viewz = RMain.viewz;
@@ -589,7 +591,8 @@ module RSegs {
         PSetup.lines_flags[linedef] |= DoomData.ML_MAPPED;
 
         // calculate rw_distance for scale calculation
-        var normalangle = PSetup.segs_angle[curline] + Tables.ANG90;
+        // curline->angle, the high half of offset | angle << 16
+        var normalangle = (PSetup.segs_offsetangle[curline] & ~0xffff) + Tables.ANG90;
         rw_normalangle = normalangle;
         var offsetangle = normalangle - rw_angle1;
         if (offsetangle < 0) {
@@ -602,7 +605,7 @@ module RSegs {
 
         var distangle = Tables.ANG90 - offsetangle;
         // curline->v1, packed x | y << 16 (see PSetup)
-        var v1 = PSetup.vertexes_xy[PSetup.segs_v1[curline]];
+        var v1 = PSetup.vertexes_xy[PSetup.segs_v1v2[curline] & 0xffff];
         var hyp = RMain.R_PointToDist(v1 << 16, v1 & ~0xffff);
         var sineval = Tables.finesine[(distangle >> Tables.ANGLETOFINESHIFT) & Tables.FINEMASK];
         rw_distance = MFixed.FixedMul(hyp, sineval);
@@ -770,7 +773,7 @@ module RSegs {
                 if (((normalangle - rw_angle1) ^ DoomType.MININT) < (Tables.ANG180 ^ DoomType.MININT)) {
                     offset = -offset;
                 }
-                rw_offset = offset + PSetup.sides_textureoffset[sidedef] + PSetup.segs_offset[curline];
+                rw_offset = offset + PSetup.sides_textureoffset[sidedef] + (PSetup.segs_offsetangle[curline] << 16);
                 rw_centerangle = Tables.ANG90 + viewangle - normalangle;
             }
 
@@ -781,7 +784,7 @@ module RSegs {
             if (RMain.fixedcolormap < 0) {
                 var lightnum = (sectors_lightlevel[frontsector] >> RMain.LIGHTSEGSHIFT) + RMain.extralight;
 
-                var v2 = PSetup.vertexes_xy[PSetup.segs_v2[curline]];
+                var v2 = PSetup.vertexes_xy[PSetup.segs_v1v2[curline] >> 16];
                 if ((v1 & ~0xffff) == (v2 & ~0xffff)) {
                     lightnum--;
                 } else if ((v1 << 16) == (v2 << 16)) {

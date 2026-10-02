@@ -444,10 +444,11 @@ function testPointInSubsectorMatchesRenderer(logger as Test.Logger) as Boolean {
     }
     // node origins themselves
     for (var n = 0; n < PSetup.numnodes; n++) {
-        var fx = PSetup.nodes_x[n];
-        var fy = PSetup.nodes_y[n];
+        var fx = PSetup.nodes_xy[n] << 16;
+        var fy = PSetup.nodes_xy[n] & ~0xffff;
+        var fdx = PSetup.nodes_dxdy[n] << 16;
         Test.assertEqual(PMapUtl.P_PointInSubsector(fx, fy), RMain.R_PointInSubsector(fx, fy));
-        Test.assertEqual(PMapUtl.P_PointInSubsector(fx + PSetup.nodes_dx[n], fy - 1), RMain.R_PointInSubsector(fx + PSetup.nodes_dx[n], fy - 1));
+        Test.assertEqual(PMapUtl.P_PointInSubsector(fx + fdx, fy - 1), RMain.R_PointInSubsector(fx + fdx, fy - 1));
     }
     Test.assertEqual(PMapUtl.P_PointInSubsector(DoomType.MAXINT, DoomType.MININT), RMain.R_PointInSubsector(DoomType.MAXINT, DoomType.MININT));
     return true;

@@ -226,6 +226,9 @@ module RBsp {
     // stored as -(node * 2 + side) - 2 once the front child is pushed.
     //
     const MAXBSPSTACK = 128;
+
+    // the node bbox R_CheckBBox looks at, unpacked from PSetup.nodes_bbox
+    var checkbox as Array<Number> = [0, 0, 0, 0] as Array<Number>;
     var bspstack as Array<Number> = new [MAXBSPSTACK] as Array<Number>;
     var bspsp as Number = 0;
 
@@ -254,12 +257,10 @@ module RBsp {
     // the same result.
     function R_SubsectorLines(num as Number) as Void {
         var ss_sector = PSetup.subsectors_sector;
-        var ss_numlines = PSetup.subsectors_numlines;
-        var ss_firstline = PSetup.subsectors_firstline;
-        var segs_v1 = PSetup.segs_v1;
-        var segs_v2 = PSetup.segs_v2;
-        var segs_backsector = PSetup.segs_backsector;
-        var segs_sidedef = PSetup.segs_sidedef;
+        // (the packed arrays are described in PSetup)
+        var segs_v1v2 = PSetup.segs_v1v2;
+        var segs_sectors = PSetup.segs_sectors;
+        var segs_sidedeflinedef = PSetup.segs_sidedeflinedef;
         var vxy = PSetup.vertexes_xy;
         var floorheight = PSetup.sectors_floorheight;
         var ceilingheight = PSetup.sectors_ceilingheight;
@@ -288,8 +289,9 @@ module RBsp {
         RMain.sscount++;
         var front = ss_sector[num];
         frontsector = front;
-        var count = ss_numlines[num];
-        var line = ss_firstline[num];
+        var line = PSetup.subsectors_lines[num];
+        var count = line >> 16;
+        line = line & 0xffff;
         var ffloor = floorheight[front];
         var fceil = ceilingheight[front];
 
@@ -310,11 +312,12 @@ module RBsp {
             // R_AddLine (line)
             RSegs.work++;
             curline = line;
-            // the vertexes are packed x | y << 16 (see PSetup)
-            px1 = vxy[segs_v1[line]];
+            // the vertexes are packed x | y << 16
+            px2 = segs_v1v2[line];
+            px1 = vxy[px2 & 0xffff];
+            px2 = vxy[px2 >> 16];
             py1 = px1 & ~0xffff;
             px1 = px1 << 16;
-            px2 = vxy[segs_v2[line]];
             py2 = px2 & ~0xffff;
             px2 = px2 << 16;
                 // R_PointToAngle for both points (see RMain), folded so
@@ -409,7 +412,7 @@ module RBsp {
                 continue;
             }
 
-            var back = segs_backsector[line];
+            var back = segs_sectors[line] >> 16;
 
             var solid = false;
             var queued = false;
@@ -430,7 +433,7 @@ module RBsp {
                 } else if (!(ceilingpic[back] == ceilingpic[front]
                              && floorpic[back] == floorpic[front]
                              && lightlevel[back] == lightlevel[front]
-                             && midtexture[segs_sidedef[line]] == 0)) {
+                             && midtexture[segs_sidedeflinedef[line] & 0xffff] == 0)) {
                     // not an empty trigger line: clippass
                     queued = true;
                 }
@@ -466,12 +469,12 @@ module RBsp {
         var sp = bspsp;
         var deadline = RSegs.deadline;
 
+        // (the packed arrays are described in PSetup)
         var children = PSetup.nodes_children;
-        var nodes_x = PSetup.nodes_x;
-        var nodes_y = PSetup.nodes_y;
-        var nodes_dx = PSetup.nodes_dx;
-        var nodes_dy = PSetup.nodes_dy;
+        var nodes_xy = PSetup.nodes_xy;
+        var nodes_dxdy = PSetup.nodes_dxdy;
         var bspcoord = PSetup.nodes_bbox;
+        var box = checkbox;
         var sf = solidsegs_first;
         var sl = solidsegs_last;
         var cc = checkcoord;
@@ -519,23 +522,25 @@ module RBsp {
 
             if (kind == 0) {
                 // R_PointOnSide (viewx, viewy, bsp)
-                var ndx = nodes_dx[bspnum];
-                var ndy = nodes_dy[bspnum];
+                var ndy = nodes_dxdy[bspnum];
+                var ndx = ndy << 16;
+                ndy = ndy & ~0xffff;
                 if (ndx == 0) {
-                    if (viewx <= nodes_x[bspnum]) {
+                    if (viewx <= (nodes_xy[bspnum] << 16)) {
                         side = ndy > 0 ? 1 : 0;
                     } else {
                         side = ndy < 0 ? 1 : 0;
                     }
                 } else if (ndy == 0) {
-                    if (viewy <= nodes_y[bspnum]) {
+                    if (viewy <= (nodes_xy[bspnum] & ~0xffff)) {
                         side = ndx < 0 ? 1 : 0;
                     } else {
                         side = ndx > 0 ? 1 : 0;
                     }
                 } else {
-                    var dx = viewx - nodes_x[bspnum];
-                    var dy = viewy - nodes_y[bspnum];
+                    var dx = nodes_xy[bspnum];
+                    var dy = viewy - (dx & ~0xffff);
+                    dx = viewx - (dx << 16);
                     if (((ndy ^ ndx ^ dx ^ dy) & 0x80000000) != 0) {
                         side = ((ndy ^ dx) & 0x80000000) != 0 ? 1 : 0;
                     } else {
@@ -551,26 +556,32 @@ module RBsp {
                 // Recursively divide front space, then come back for the
                 // back space.
                 stack[sp] = -(bspnum * 2 + side) - 2;
-                stack[sp + 1] = children[bspnum * 2 + side];
+                stack[sp + 1] = (children[bspnum] >> (side << 4)) & 0xffff;
                 sp += 2;
                 continue;
             }
 
             if (kind == 1) {
                 // Possibly divide back space: R_CheckBBox (bsp->bbox[side^1])
-                var b = node * 8 + (side ^ 1) * 4;
+                // (unpacked into box: top | bottom << 16, then left |
+                // right << 16)
+                var b = node * 4 + (side ^ 1) * 2;
+                box[MBBox.BOXTOP] = bspcoord[b] << 16;
+                box[MBBox.BOXBOTTOM] = bspcoord[b] & ~0xffff;
+                box[MBBox.BOXLEFT] = bspcoord[b + 1] << 16;
+                box[MBBox.BOXRIGHT] = bspcoord[b + 1] & ~0xffff;
                 var boxx;
                 var boxy;
-                if (viewx <= bspcoord[b + MBBox.BOXLEFT]) {
+                if (viewx <= box[MBBox.BOXLEFT]) {
                     boxx = 0;
-                } else if (viewx < bspcoord[b + MBBox.BOXRIGHT]) {
+                } else if (viewx < box[MBBox.BOXRIGHT]) {
                     boxx = 1;
                 } else {
                     boxx = 2;
                 }
-                if (viewy >= bspcoord[b + MBBox.BOXTOP]) {
+                if (viewy >= box[MBBox.BOXTOP]) {
                     boxy = 0;
-                } else if (viewy > bspcoord[b + MBBox.BOXBOTTOM]) {
+                } else if (viewy > box[MBBox.BOXBOTTOM]) {
                     boxy = 1;
                 } else {
                     boxy = 2;
@@ -579,10 +590,10 @@ module RBsp {
                 var visible = true;
                 if (boxpos != 5) {
                     var c = boxpos * 4;
-                    px1 = bspcoord[b + cc[c]];
-                    py1 = bspcoord[b + cc[c + 1]];
-                    px2 = bspcoord[b + cc[c + 2]];
-                    py2 = bspcoord[b + cc[c + 3]];
+                    px1 = box[cc[c]];
+                    py1 = box[cc[c + 1]];
+                    px2 = box[cc[c + 2]];
+                    py2 = box[cc[c + 3]];
                     // R_PointToAngle for both points (see RMain), folded so
                     // the two share one block
                     for (var k = 0; k < 2; k++) {
@@ -679,7 +690,7 @@ module RBsp {
                     }
                 }
                 if (visible) {
-                    stack[sp] = children[node * 2 + (side ^ 1)];
+                    stack[sp] = (children[node] >> ((side ^ 1) << 4)) & 0xffff;
                     sp++;
                 }
                 continue;

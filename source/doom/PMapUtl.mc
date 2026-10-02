@@ -94,10 +94,9 @@ module PMapUtl {
             return 0;
         }
 
-        var nodes_x = PSetup.nodes_x;
-        var nodes_y = PSetup.nodes_y;
-        var nodes_dx = PSetup.nodes_dx;
-        var nodes_dy = PSetup.nodes_dy;
+        // (the packed arrays are described in PSetup)
+        var nodes_xy = PSetup.nodes_xy;
+        var nodes_dxdy = PSetup.nodes_dxdy;
         var children = PSetup.nodes_children;
         var ndx;
         var ndy;
@@ -108,24 +107,26 @@ module PMapUtl {
 
         while ((nodenum & DoomData.NF_SUBSECTOR) == 0) {
             // R_PointOnSide(x, y, nodenum)
-            ndx = nodes_dx[nodenum];
-            ndy = nodes_dy[nodenum];
+            ndy = nodes_dxdy[nodenum];
+            ndx = ndy << 16;
+            ndy = ndy & ~0xffff;
 
             if (ndx == 0) {
-                if (x <= nodes_x[nodenum]) {
+                if (x <= (nodes_xy[nodenum] << 16)) {
                     side = ndy > 0 ? 1 : 0;
                 } else {
                     side = ndy < 0 ? 1 : 0;
                 }
             } else if (ndy == 0) {
-                if (y <= nodes_y[nodenum]) {
+                if (y <= (nodes_xy[nodenum] & ~0xffff)) {
                     side = ndx < 0 ? 1 : 0;
                 } else {
                     side = ndx > 0 ? 1 : 0;
                 }
             } else {
-                dx = (x - nodes_x[nodenum]);
-                dy = (y - nodes_y[nodenum]);
+                dx = nodes_xy[nodenum];
+                dy = (y - (dx & ~0xffff));
+                dx = (x - (dx << 16));
 
                 // Try to quickly decide by looking at sign bits.
                 if (((ndy ^ ndx ^ dx ^ dy) & 0x80000000) != 0) {
@@ -143,7 +144,7 @@ module PMapUtl {
                     side = dy < dx ? 0 : 1;
                 }
             }
-            nodenum = children[nodenum * 2 + side];
+            nodenum = (children[nodenum] >> (side << 4)) & 0xffff;
         }
 
         return nodenum & ~DoomData.NF_SUBSECTOR;

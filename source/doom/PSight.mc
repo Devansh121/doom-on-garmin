@@ -114,7 +114,8 @@ module PSight {
     //
     function P_CrossSubsector(num as Number) as Boolean {
         // module arrays copied into locals for the loop
-        var segs_linedef = PSetup.segs_linedef;
+        // (the packed arrays are described in PSetup)
+        var segs_sidedeflinedef = PSetup.segs_sidedeflinedef;
         var lines_validcount = PSetup.lines_validcount;
         var lines_v1v2 = PSetup.lines_v1v2;
         var vxy = PSetup.vertexes_xy;
@@ -129,11 +130,12 @@ module PSight {
         }
 
         // check lines
-        var count = PSetup.subsectors_numlines[num];
-        var seg = PSetup.subsectors_firstline[num];
+        var seg = PSetup.subsectors_lines[num];
+        var count = seg >> 16;
+        seg = seg & 0xffff;
 
         for (; count != 0; seg++, count--) {
-            var line = segs_linedef[seg];
+            var line = segs_sidedeflinedef[seg] >> 16;
 
             // allready checked other side?
             if (lines_validcount[line] == valid) {
@@ -173,8 +175,9 @@ module PSight {
             }
 
             // crosses a two sided line
-            var front = PSetup.segs_frontsector[seg];
-            var back = PSetup.segs_backsector[seg];
+            var front = PSetup.segs_sectors[seg];
+            var back = front >> 16;
+            front = front & 0xffff;
 
             // no wall to block sight with?
             if (floorheight[front] == floorheight[back]
@@ -259,12 +262,11 @@ module PSight {
 
     function P_CrossBSPNode(bspnum as Number) as Boolean {
         var stack = sightstack;
+        // (the packed arrays are described in PSetup)
         var children = PSetup.nodes_children;
-        var nodes_x = PSetup.nodes_x;
-        var nodes_y = PSetup.nodes_y;
-        var nodes_dx = PSetup.nodes_dx;
-        var nodes_dy = PSetup.nodes_dy;
-        var segs_linedef = PSetup.segs_linedef;
+        var nodes_xy = PSetup.nodes_xy;
+        var nodes_dxdy = PSetup.nodes_dxdy;
+        var segs_sidedeflinedef = PSetup.segs_sidedeflinedef;
         var lines_validcount = PSetup.lines_validcount;
         var lines_v1v2 = PSetup.lines_v1v2;
         var vxy = PSetup.vertexes_xy;
@@ -308,10 +310,12 @@ module PSight {
 
                 // the partition plane is crossed here
                 // (side == P_DivlineSide(t2x, t2y, bsp), inlined)
-                nx = nodes_x[bspnum];
-                ny = nodes_y[bspnum];
-                ndx = nodes_dx[bspnum];
-                ndy = nodes_dy[bspnum];
+                nx = nodes_xy[bspnum];
+                ny = nx & ~0xffff;
+                nx = nx << 16;
+                ndx = nodes_dxdy[bspnum];
+                ndy = ndx & ~0xffff;
+                ndx = ndx << 16;
                 if (ndx == 0) {
                     if (ex == nx) {
                         s = 2;
@@ -332,7 +336,7 @@ module PSight {
                 } else {
                     // left = ndx, right = ndy from here on
                     ndx = (ndy >> MFixed.FRACBITS) * ((ex - nx) >> MFixed.FRACBITS);
-                    ndy = ((ey - ny) >> MFixed.FRACBITS) * (nodes_dx[bspnum] >> MFixed.FRACBITS);
+                    ndy = ((ey - ny) >> MFixed.FRACBITS) * ((nodes_dxdy[bspnum] << 16) >> MFixed.FRACBITS);
                     if (ndy < ndx) {
                         s = 0;
                     } else if (ndx == ndy) {
@@ -347,7 +351,7 @@ module PSight {
                 }
 
                 // cross the ending side
-                stack[sp] = children[bspnum * 2 + (side ^ 1)];
+                stack[sp] = (children[bspnum] >> ((side ^ 1) << 4)) & 0xffff;
                 sp++;
                 continue;
             }
@@ -362,11 +366,12 @@ module PSight {
                 }
 
                 // check lines
-                count = PSetup.subsectors_numlines[bspnum];
-                seg = PSetup.subsectors_firstline[bspnum];
+                seg = PSetup.subsectors_lines[bspnum];
+                count = seg >> 16;
+                seg = seg & 0xffff;
 
                 for (; count != 0; seg++, count--) {
-                    line = segs_linedef[seg];
+                    line = segs_sidedeflinedef[seg] >> 16;
 
                     // allready checked other side?
                     if (lines_validcount[line] == valid) {
@@ -407,10 +412,12 @@ module PSight {
 
             // decide which side the start point is on
             // (P_DivlineSide(strace x, y, bspnum), inlined)
-            nx = nodes_x[bspnum];
-            ny = nodes_y[bspnum];
-            ndx = nodes_dx[bspnum];
-            ndy = nodes_dy[bspnum];
+            nx = nodes_xy[bspnum];
+            ny = nx & ~0xffff;
+            nx = nx << 16;
+            ndx = nodes_dxdy[bspnum];
+            ndy = ndx & ~0xffff;
+            ndx = ndx << 16;
             if (ndx == 0) {
                 if (sx == nx) {
                     side = 2;
@@ -431,7 +438,7 @@ module PSight {
             } else {
                 // left = ndx, right = ndy from here on
                 ndx = (ndy >> MFixed.FRACBITS) * ((sx - nx) >> MFixed.FRACBITS);
-                ndy = ((sy - ny) >> MFixed.FRACBITS) * (nodes_dx[bspnum] >> MFixed.FRACBITS);
+                ndy = ((sy - ny) >> MFixed.FRACBITS) * ((nodes_dxdy[bspnum] << 16) >> MFixed.FRACBITS);
                 if (ndy < ndx) {
                     side = 0;
                 } else if (ndx == ndy) {
@@ -446,7 +453,7 @@ module PSight {
 
             // cross the starting side, then come back for the partition
             stack[sp] = -(bspnum * 2 + side) - 2;
-            stack[sp + 1] = children[bspnum * 2 + side];
+            stack[sp + 1] = (children[bspnum] >> (side << 4)) & 0xffff;
             sp += 2;
         }
         return true;
@@ -479,8 +486,9 @@ module PSight {
         // crosses a two sided line
         var floorheight = PSetup.sectors_floorheight;
         var ceilingheight = PSetup.sectors_ceilingheight;
-        var front = PSetup.segs_frontsector[seg];
-        var back = PSetup.segs_backsector[seg];
+        var front = PSetup.segs_sectors[seg];
+        var back = front >> 16;
+        front = front & 0xffff;
 
         // no wall to block sight with?
         if (floorheight[front] == floorheight[back]
