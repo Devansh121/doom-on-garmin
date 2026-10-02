@@ -6,8 +6,8 @@
 // number (see PTick): mobjs_x[mo] is mo->x. Pointers to other mobjs are
 // mobj numbers and -1 is NULL; subsector is a subsector number, state a
 // state number into Info.states, info is Info.mobjinfo[type * MI_SIZE].
-// spawnpoint (a mapthing_t) is flattened as mobjs_spawnpoint[mo * 5 + i]
-// in mapthing_t field order: x, y, angle, type, options.
+// spawnpoint (a mapthing_t, five shorts) is packed in three numbers,
+// mobjs_spawnpoint[mo * 3 + i]: x | y << 16, angle | type << 16, options.
 
 import Toybox.Lang;
 
@@ -119,7 +119,7 @@ module PMobj {
 
     //More drawing info: to determine current sprite.
     var mobjs_angle as Array<Number> = [] as Array<Number>;   // orientation
-    var mobjs_sprite as Array<Number> = [] as Array<Number>;  // used to find patch_t and flip value
+    var mobjs_sprite as ByteArray = []b;  // used to find patch_t and flip value
     var mobjs_frame as Array<Number> = [] as Array<Number>;   // might be ORed with FF_FULLBRIGHT
 
     // Interaction info, by BLOCKMAP.
@@ -145,14 +145,14 @@ module PMobj {
     // If == validcount, already checked.
     var mobjs_validcount as Array<Number> = [] as Array<Number>;
 
-    var mobjs_type as Array<Number> = [] as Array<Number>;
+    var mobjs_type as ByteArray = []b;
     var mobjs_tics as Array<Number> = [] as Array<Number>;   // state tic counter
     var mobjs_state as Array<Number> = [] as Array<Number>;
     var mobjs_flags as Array<Number> = [] as Array<Number>;
     var mobjs_health as Array<Number> = [] as Array<Number>;
 
     // Movement direction, movement generation (zig-zagging).
-    var mobjs_movedir as Array<Number> = [] as Array<Number>;   // 0-7
+    var mobjs_movedir as ByteArray = []b;   // 0-7
     var mobjs_movecount as Array<Number> = [] as Array<Number>; // when 0, select a new dir
 
     // Thing being chased/attacked (or NULL),
@@ -165,14 +165,14 @@ module PMobj {
 
     // If >0, the target will be chased
     // no matter what (even if shot)
-    var mobjs_threshold as Array<Number> = [] as Array<Number>;
+    var mobjs_threshold as ByteArray = []b;
 
     // Additional info record for player avatars only.
     // Only valid if type == MT_PLAYER: the player number, -1 otherwise.
     var mobjs_player as Array<Number> = [] as Array<Number>;
 
     // Player number last looked for.
-    var mobjs_lastlook as Array<Number> = [] as Array<Number>;
+    var mobjs_lastlook as ByteArray = []b;
 
     // For nightmare respawn.
     var mobjs_spawnpoint as Array<Number> = [] as Array<Number>;
@@ -180,14 +180,21 @@ module PMobj {
     // Thing being chased/attacked for tracers.
     var mobjs_tracer as Array<Number> = [] as Array<Number>;
 
-    // p_mobj.c: item respawn queue, mapthing_t flattened like spawnpoint.
-    var itemrespawnque as Array<Number> = new [ITEMQUESIZE * 5] as Array<Number>;
+    // p_mobj.c: item respawn queue, mapthing_t packed like spawnpoint.
+    var itemrespawnque as Array<Number> = new [ITEMQUESIZE * 3] as Array<Number>;
     var itemrespawntime as Array<Number> = new [ITEMQUESIZE] as Array<Number>;
     var iquehead as Number = 0;
     var iquetail as Number = 0;
 
     // Sizes the mobj pool to match the thinker pool; called from
     // P_InitThinkers.
+    //
+    // Every pool slot costs a number in each of these arrays, 5 bytes
+    // whatever it holds, so the fields whose values always fit in 0..255
+    // are ByteArrays (1 byte): type (< NUMMOBJTYPES), sprite (<
+    // NUMSPRITES), movedir (0..DI_NODIR), threshold (0..BASETHRESHOLD) and
+    // lastlook (0..MAXPLAYERS-1). tics (-1), movecount (goes to -1 in
+    // A_Chase) and reactiontime (A_BrainSpit's travel time) don't fit.
     function P_InitMobjs(n as Number) as Void {
         mobjs_x = new [n] as Array<Number>;
         mobjs_y = new [n] as Array<Number>;
@@ -195,7 +202,7 @@ module PMobj {
         mobjs_snext = new [n] as Array<Number>;
         mobjs_sprev = new [n] as Array<Number>;
         mobjs_angle = new [n] as Array<Number>;
-        mobjs_sprite = new [n] as Array<Number>;
+        mobjs_sprite = new [n]b;
         mobjs_frame = new [n] as Array<Number>;
         mobjs_bnext = new [n] as Array<Number>;
         mobjs_bprev = new [n] as Array<Number>;
@@ -208,19 +215,19 @@ module PMobj {
         mobjs_momy = new [n] as Array<Number>;
         mobjs_momz = new [n] as Array<Number>;
         mobjs_validcount = new [n] as Array<Number>;
-        mobjs_type = new [n] as Array<Number>;
+        mobjs_type = new [n]b;
         mobjs_tics = new [n] as Array<Number>;
         mobjs_state = new [n] as Array<Number>;
         mobjs_flags = new [n] as Array<Number>;
         mobjs_health = new [n] as Array<Number>;
-        mobjs_movedir = new [n] as Array<Number>;
+        mobjs_movedir = new [n]b;
         mobjs_movecount = new [n] as Array<Number>;
         mobjs_target = new [n] as Array<Number>;
         mobjs_reactiontime = new [n] as Array<Number>;
-        mobjs_threshold = new [n] as Array<Number>;
+        mobjs_threshold = new [n]b;
         mobjs_player = new [n] as Array<Number>;
-        mobjs_lastlook = new [n] as Array<Number>;
-        mobjs_spawnpoint = new [n * 5] as Array<Number>;
+        mobjs_lastlook = new [n]b;
+        mobjs_spawnpoint = new [n * 3] as Array<Number>;
         mobjs_tracer = new [n] as Array<Number>;
     }
 
@@ -530,10 +537,12 @@ module PMobj {
         var z;
         var ss;
         var mo;
-        var sp = mobj * 5;
+        var sp = mobj * 3;
 
-        x = mobjs_spawnpoint[sp] << MFixed.FRACBITS;
-        y = mobjs_spawnpoint[sp + 1] << MFixed.FRACBITS;
+        // x | y << 16, so x << FRACBITS is w << 16 and y << FRACBITS is
+        // w & ~0xffff
+        x = mobjs_spawnpoint[sp] << 16;
+        y = mobjs_spawnpoint[sp] & ~0xffff;
 
         // somthing is occupying it's position?
         if (!PMap.P_CheckPosition(mobj, x, y)) {
@@ -567,12 +576,13 @@ module PMobj {
 
         // inherit attributes from deceased one
         mo = P_SpawnMobj(x, y, z, mobjs_type[mobj]);
-        for (var i = 0; i < 5; i++) {
-            mobjs_spawnpoint[mo * 5 + i] = mobjs_spawnpoint[sp + i];
+        for (var i = 0; i < 3; i++) {
+            mobjs_spawnpoint[mo * 3 + i] = mobjs_spawnpoint[sp + i];
         }
-        mobjs_angle[mo] = Tables.ANG45 * (mobjs_spawnpoint[sp + 2] / 45);
+        // angle, the signed low half of angle | type << 16
+        mobjs_angle[mo] = Tables.ANG45 * (((mobjs_spawnpoint[sp + 1] << 16) >> 16) / 45);
 
-        if ((mobjs_spawnpoint[sp + 4] & DoomDef.MTF_AMBUSH) != 0) {
+        if ((mobjs_spawnpoint[sp + 2] & DoomDef.MTF_AMBUSH) != 0) {
             mobjs_flags[mo] |= MF_AMBUSH;
         }
 
@@ -671,8 +681,8 @@ module PMobj {
         mobjs_threshold[mobj] = 0;
         mobjs_player[mobj] = -1;
         mobjs_tracer[mobj] = -1;
-        for (var i = 0; i < 5; i++) {
-            mobjs_spawnpoint[mobj * 5 + i] = 0;
+        for (var i = 0; i < 3; i++) {
+            mobjs_spawnpoint[mobj * 3 + i] = 0;
         }
 
         mobjs_type[mobj] = type;
@@ -730,8 +740,8 @@ module PMobj {
             && (flags & MF_DROPPED) == 0
             && (type != Info.MT_INV)
             && (type != Info.MT_INS)) {
-            for (var i = 0; i < 5; i++) {
-                itemrespawnque[iquehead * 5 + i] = mobjs_spawnpoint[mobj * 5 + i];
+            for (var i = 0; i < 3; i++) {
+                itemrespawnque[iquehead * 3 + i] = mobjs_spawnpoint[mobj * 3 + i];
             }
             itemrespawntime[iquehead] = PTick.leveltime;
             iquehead = (iquehead + 1) & (ITEMQUESIZE - 1);
@@ -783,10 +793,11 @@ module PMobj {
             return;
         }
 
-        mthing = iquetail * 5;
+        mthing = iquetail * 3;
 
-        x = itemrespawnque[mthing] << MFixed.FRACBITS;
-        y = itemrespawnque[mthing + 1] << MFixed.FRACBITS;
+        // packed like spawnpoint
+        x = itemrespawnque[mthing] << 16;
+        y = itemrespawnque[mthing] & ~0xffff;
 
         // spawn a teleport fog at the new spot
         ss = RMain.R_PointInSubsector(x, y);
@@ -796,7 +807,7 @@ module PMobj {
         // find which type to spawn
         var mi = Info.mobjinfo;
         for (i = 0; i < Info.NUMMOBJTYPES; i++) {
-            if (itemrespawnque[mthing + 3] == mi[i * Info.MI_SIZE + Info.MI_DOOMEDNUM]) {
+            if ((itemrespawnque[mthing + 1] >> 16) == mi[i * Info.MI_SIZE + Info.MI_DOOMEDNUM]) {
                 break;
             }
         }
@@ -809,10 +820,10 @@ module PMobj {
         }
 
         mo = P_SpawnMobj(x, y, z, i);
-        for (var k = 0; k < 5; k++) {
-            mobjs_spawnpoint[mo * 5 + k] = itemrespawnque[mthing + k];
+        for (var k = 0; k < 3; k++) {
+            mobjs_spawnpoint[mo * 3 + k] = itemrespawnque[mthing + k];
         }
-        mobjs_angle[mo] = Tables.ANG45 * (itemrespawnque[mthing + 2] / 45);
+        mobjs_angle[mo] = Tables.ANG45 * (((itemrespawnque[mthing + 1] << 16) >> 16) / 45);
 
         // pull it from the que
         iquetail = (iquetail + 1) & (ITEMQUESIZE - 1);
@@ -978,9 +989,10 @@ module PMobj {
         }
 
         mobj = P_SpawnMobj(x, y, z, i);
-        for (var k = 0; k < 5; k++) {
-            mobjs_spawnpoint[mobj * 5 + k] = mthing[k];
-        }
+        // packed, see mobjs_spawnpoint
+        mobjs_spawnpoint[mobj * 3] = (mthing[0] & 0xffff) | (mthing[1] << 16);
+        mobjs_spawnpoint[mobj * 3 + 1] = (mthing[2] & 0xffff) | (mthing[3] << 16);
+        mobjs_spawnpoint[mobj * 3 + 2] = mthing[4];
 
         if (mobjs_tics[mobj] > 0) {
             mobjs_tics[mobj] = 1 + (MRandom.P_Random() % mobjs_tics[mobj]);
