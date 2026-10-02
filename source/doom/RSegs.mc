@@ -601,10 +601,9 @@ module RSegs {
         }
 
         var distangle = Tables.ANG90 - offsetangle;
-        var v1 = PSetup.segs_v1[curline];
-        var vx = PSetup.vertexes_x;
-        var vy = PSetup.vertexes_y;
-        var hyp = RMain.R_PointToDist(vx[v1], vy[v1]);
+        // curline->v1, packed x | y << 16 (see PSetup)
+        var v1 = PSetup.vertexes_xy[PSetup.segs_v1[curline]];
+        var hyp = RMain.R_PointToDist(v1 << 16, v1 & ~0xffff);
         var sineval = Tables.finesine[(distangle >> Tables.ANGLETOFINESHIFT) & Tables.FINEMASK];
         rw_distance = MFixed.FixedMul(hyp, sineval);
 
@@ -782,10 +781,10 @@ module RSegs {
             if (RMain.fixedcolormap < 0) {
                 var lightnum = (sectors_lightlevel[frontsector] >> RMain.LIGHTSEGSHIFT) + RMain.extralight;
 
-                var v2 = PSetup.segs_v2[curline];
-                if (vy[v1] == vy[v2]) {
+                var v2 = PSetup.vertexes_xy[PSetup.segs_v2[curline]];
+                if ((v1 & ~0xffff) == (v2 & ~0xffff)) {
                     lightnum--;
-                } else if (vx[v1] == vx[v2]) {
+                } else if ((v1 << 16) == (v2 << 16)) {
                     lightnum++;
                 }
 

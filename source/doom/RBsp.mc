@@ -260,8 +260,7 @@ module RBsp {
         var segs_v2 = PSetup.segs_v2;
         var segs_backsector = PSetup.segs_backsector;
         var segs_sidedef = PSetup.segs_sidedef;
-        var vx = PSetup.vertexes_x;
-        var vy = PSetup.vertexes_y;
+        var vxy = PSetup.vertexes_xy;
         var floorheight = PSetup.sectors_floorheight;
         var ceilingheight = PSetup.sectors_ceilingheight;
         var floorpic = PSetup.sectors_floorpic;
@@ -311,12 +310,13 @@ module RBsp {
             // R_AddLine (line)
             RSegs.work++;
             curline = line;
-            var v1 = segs_v1[line];
-            var v2 = segs_v2[line];
-            px1 = vx[v1];
-            py1 = vy[v1];
-            px2 = vx[v2];
-            py2 = vy[v2];
+            // the vertexes are packed x | y << 16 (see PSetup)
+            px1 = vxy[segs_v1[line]];
+            py1 = px1 & ~0xffff;
+            px1 = px1 << 16;
+            px2 = vxy[segs_v2[line]];
+            py2 = px2 & ~0xffff;
+            px2 = px2 << 16;
                 // R_PointToAngle for both points (see RMain), folded so
             // the two share one block
             for (var k = 0; k < 2; k++) {

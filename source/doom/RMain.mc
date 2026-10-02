@@ -195,11 +195,14 @@ module RMain {
     }
 
     function R_PointOnSegSide(x as Number, y as Number, line as Number) as Number {
-        var lx = PSetup.vertexes_x[PSetup.segs_v1[line]];
-        var ly = PSetup.vertexes_y[PSetup.segs_v1[line]];
+        // the vertexes are packed x | y << 16 (see PSetup)
+        var lx = PSetup.vertexes_xy[PSetup.segs_v1[line]];
+        var ly = lx & ~0xffff;
+        lx = lx << 16;
 
-        var ldx = PSetup.vertexes_x[PSetup.segs_v2[line]] - lx;
-        var ldy = PSetup.vertexes_y[PSetup.segs_v2[line]] - ly;
+        var ldx = PSetup.vertexes_xy[PSetup.segs_v2[line]];
+        var ldy = (ldx & ~0xffff) - ly;
+        ldx = (ldx << 16) - lx;
 
         if (ldx == 0) {
             if (x <= lx) {

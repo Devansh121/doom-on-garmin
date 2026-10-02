@@ -406,7 +406,7 @@ function testSpawnSpecialsAndLights(logger as Test.Logger) as Boolean {
     Test.assertEqual(RData.texturetranslation[61], 62);
     Test.assertEqual(RData.texturetranslation[62], 63);
     Test.assertEqual(RData.texturetranslation[63], 61);
-    Test.assertEqual(PSetup.sides_textureoffset[PSetup.lines_sidenum[352 * 2]], 13631488);
+    Test.assertEqual(PSetup.sides_textureoffset[PSetup.lines_sidenums[352] & 0xffff], 13631488);
 
     // the light thinkers on their own, from random index 17
     loadSpecE1M1();
@@ -445,7 +445,7 @@ function testSpawnSpecialsAndLights(logger as Test.Logger) as Boolean {
 function testSwitchTexture(logger as Test.Logger) as Boolean {
     loadSpecE1M1();
     // the exit switch, line 330: SW1EXIT (100) to SW2EXIT (119)
-    var s = PSetup.lines_sidenum[330 * 2];
+    var s = PSetup.lines_sidenums[330] & 0xffff;
     Test.assertEqual(s, 452);
     Test.assertEqual(PSetup.sides_midtexture[s], 100);
 

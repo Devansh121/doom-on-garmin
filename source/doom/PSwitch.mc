@@ -132,7 +132,7 @@ module PSwitch {
                 buttonlist_where[i] = w;
                 buttonlist_btexture[i] = texture;
                 buttonlist_btimer[i] = time;
-                buttonlist_soundorg[i] = SSound.S_SectorOrigin(PSetup.lines_frontsector[line]);
+                buttonlist_soundorg[i] = SSound.S_SectorOrigin(PSetup.lines_sectors[line] & 0xffff);
                 return;
             }
         }
@@ -149,7 +149,7 @@ module PSwitch {
             PSetup.lines_special[line] = 0;
         }
 
-        var side = PSetup.lines_sidenum[line * 2];
+        var side = PSetup.lines_sidenums[line] & 0xffff;
         var texTop = PSetup.sides_toptexture[side];
         var texMid = PSetup.sides_midtexture[side];
         var texBot = PSetup.sides_bottomtexture[side];

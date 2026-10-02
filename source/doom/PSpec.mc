@@ -224,7 +224,8 @@ module PSpec {
     //
     function getSide(currentSector as Number, line as Number, side as Number) as Number {
         var l = PSetup.linebuffer[PSetup.sectors_lines[currentSector] + line];
-        return PSetup.lines_sidenum[l * 2 + side];
+        // sidenum[side], unpacked (see PSetup)
+        return (PSetup.lines_sidenums[l] << ((side ^ 1) << 4)) >> 16;
     }
 
     //
@@ -235,7 +236,8 @@ module PSpec {
     //
     function getSector(currentSector as Number, line as Number, side as Number) as Number {
         var l = PSetup.linebuffer[PSetup.sectors_lines[currentSector] + line];
-        return PSetup.sides_sector[PSetup.lines_sidenum[l * 2 + side]];
+        // sidenum[side], unpacked (see PSetup)
+        return PSetup.sides_sector[(PSetup.lines_sidenums[l] << ((side ^ 1) << 4)) >> 16];
     }
 
     //
@@ -258,11 +260,13 @@ module PSpec {
             return -1;
         }
 
-        if (PSetup.lines_frontsector[line] == sec) {
-            return PSetup.lines_backsector[line];
+        // frontsector | backsector << 16 (see PSetup). No local for it:
+        // this can run at the end of a monster's P_TryMove call chain.
+        if ((PSetup.lines_sectors[line] & 0xffff) == sec) {
+            return PSetup.lines_sectors[line] >> 16;
         }
 
-        return PSetup.lines_frontsector[line];
+        return PSetup.lines_sectors[line] & 0xffff;
     }
 
     //
@@ -1081,7 +1085,7 @@ module PSpec {
             switch (lines_special[line]) {
                 case 48:
                     // EFFECT FIRSTCOL SCROLL +
-                    PSetup.sides_textureoffset[PSetup.lines_sidenum[line * 2]] += MFixed.FRACUNIT;
+                    PSetup.sides_textureoffset[PSetup.lines_sidenums[line] & 0xffff] += MFixed.FRACUNIT;
                     break;
             }
         }
@@ -1092,7 +1096,7 @@ module PSpec {
             if (btimer[i] != 0) {
                 btimer[i]--;
                 if (btimer[i] == 0) {
-                    var side = PSetup.lines_sidenum[PSwitch.buttonlist_line[i] * 2];
+                    var side = PSetup.lines_sidenums[PSwitch.buttonlist_line[i]] & 0xffff;
                     switch (PSwitch.buttonlist_where[i]) {
                         case top:
                             PSetup.sides_toptexture[side] = PSwitch.buttonlist_btexture[i];
@@ -1119,7 +1123,8 @@ module PSpec {
     function EV_DoDonut(line as Number) as Number {
         var buffer = PSetup.linebuffer;
         var flags = PSetup.lines_flags;
-        var back = PSetup.lines_backsector;
+        // frontsector | backsector << 16 (see PSetup)
+        var sectors = PSetup.lines_sectors;
         var rtn = 0;
 
         // while ((secnum = P_FindSectorFromLineTag(line,secnum)) >= 0):
@@ -1141,10 +1146,10 @@ module PSpec {
                 // (!s2->lines[i]->flags & ML_TWOSIDED) in the C code:
                 // ! binds first, so this half is always false.
                 if ((((flags[l] == 0) ? 1 : 0) & DoomData.ML_TWOSIDED) != 0
-                    || (back[l] == s1)) {
+                    || ((sectors[l] >> 16) == s1)) {
                     continue;
                 }
-                var s3 = back[l];
+                var s3 = sectors[l] >> 16;
 
                 //	Spawn rising slime
                 var floor = PTick.P_AllocThinker();

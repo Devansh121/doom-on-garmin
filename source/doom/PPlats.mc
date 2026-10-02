@@ -152,7 +152,7 @@ module PPlats {
             switch (type) {
                 case PSpec.raiseToNearestAndChange:
                     p[PL_SPEED] = PSpec.PLATSPEED / 2;
-                    PSetup.sectors_floorpic[sec] = PSetup.sectors_floorpic[PSetup.sides_sector[PSetup.lines_sidenum[line * 2]]];
+                    PSetup.sectors_floorpic[sec] = PSetup.sectors_floorpic[PSetup.sides_sector[PSetup.lines_sidenums[line] & 0xffff]];
                     p[PL_HIGH] = PSpec.P_FindNextHighestFloor(sec, PSetup.sectors_floorheight[sec]);
                     p[PL_WAIT] = 0;
                     p[PL_STATUS] = PSpec.up;
@@ -164,7 +164,7 @@ module PPlats {
 
                 case PSpec.raiseAndChange:
                     p[PL_SPEED] = PSpec.PLATSPEED / 2;
-                    PSetup.sectors_floorpic[sec] = PSetup.sectors_floorpic[PSetup.sides_sector[PSetup.lines_sidenum[line * 2]]];
+                    PSetup.sectors_floorpic[sec] = PSetup.sectors_floorpic[PSetup.sides_sector[PSetup.lines_sidenums[line] & 0xffff]];
                     p[PL_HIGH] = PSetup.sectors_floorheight[sec] + amount * MFixed.FRACUNIT;
                     p[PL_WAIT] = 0;
                     p[PL_STATUS] = PSpec.up;

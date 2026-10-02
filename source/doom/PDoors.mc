@@ -363,7 +363,8 @@ module PDoors {
         }
 
         // if the sector has an active thinker, use it
-        var sec = PSetup.sides_sector[PSetup.lines_sidenum[line * 2 + (side ^ 1)]];
+        // sidenum[side ^ 1], unpacked (see PSetup)
+        var sec = PSetup.sides_sector[(PSetup.lines_sidenums[line] << (side << 4)) >> 16];
 
         if (PSetup.sectors_specialdata[sec] != -1) {
             // door = sec->specialdata, whatever kind of special it is

@@ -151,10 +151,14 @@ module PMap {
     function PIT_CheckLine(ld as Number) as Boolean {
         // ld->bbox, worked out from the vertexes: line_t's bbox isn't
         // stored, to save RAM.
-        var x1 = PSetup.vertexes_x[PSetup.lines_v1[ld]];
-        var x2 = PSetup.vertexes_x[PSetup.lines_v2[ld]];
-        var y1 = PSetup.vertexes_y[PSetup.lines_v1[ld]];
-        var y2 = PSetup.vertexes_y[PSetup.lines_v2[ld]];
+        // (the vertexes are packed x | y << 16, see PSetup)
+        var y1 = PSetup.lines_v1v2[ld];
+        var y2 = PSetup.vertexes_xy[y1 >> 16];
+        y1 = PSetup.vertexes_xy[y1 & 0xffff];
+        var x1 = y1 << 16;
+        var x2 = y2 << 16;
+        y1 = y1 & ~0xffff;
+        y2 = y2 & ~0xffff;
         var left = x1 < x2 ? x1 : x2;
         var right = x1 < x2 ? x2 : x1;
         var bottom = y1 < y2 ? y1 : y2;
@@ -181,7 +185,7 @@ module PMap {
         // so two special lines that are only 8 pixels apart
         // could be crossed in either order.
 
-        if (PSetup.lines_backsector[ld] == -1) {
+        if ((PSetup.lines_sectors[ld] >> 16) == -1) {
             return false;   // one sided line
         }
 
@@ -484,16 +488,17 @@ module PMap {
         var blockmaplump = PSetup.blockmaplump;
         var linevalid = PSetup.lines_validcount;
         var valid = RMain.validcount;
-        var lines_v1 = PSetup.lines_v1;
-        var lines_v2 = PSetup.lines_v2;
-        var vx = PSetup.vertexes_x;
-        var vy = PSetup.vertexes_y;
+        var lines_v1v2 = PSetup.lines_v1v2;
+        var vxy = PSetup.vertexes_xy;
         var bbox = tmbbox;
         var list;
         var w;
         var ld;
         var a;
         var b;
+        // ld's vertexes, packed x | y << 16 (see PSetup)
+        var p1;
+        var p2;
 
         for (var bx = xl; bx <= xh; bx++) {
             for (var by = yl; by <= yh; by++) {
@@ -523,14 +528,17 @@ module PMap {
                     linevalid[ld] = valid;
 
                     // PIT_CheckLine: ld->bbox from the vertexes
-                    a = vx[lines_v1[ld]];
-                    b = vx[lines_v2[ld]];
+                    p2 = lines_v1v2[ld];
+                    p1 = vxy[p2 & 0xffff];
+                    p2 = vxy[p2 >> 16];
+                    a = p1 << 16;
+                    b = p2 << 16;
                     if (bbox[MBBox.BOXRIGHT] <= (a < b ? a : b)
                         || bbox[MBBox.BOXLEFT] >= (a < b ? b : a)) {
                         continue;
                     }
-                    a = vy[lines_v1[ld]];
-                    b = vy[lines_v2[ld]];
+                    a = p1 & ~0xffff;
+                    b = p2 & ~0xffff;
                     if (bbox[MBBox.BOXTOP] <= (a < b ? a : b)
                         || bbox[MBBox.BOXBOTTOM] >= (a < b ? b : a)) {
                         continue;
@@ -689,7 +697,8 @@ module PMap {
 
         var side = PMapUtl.P_PointOnLineSide(PMobj.mobjs_x[slidemo], PMobj.mobjs_y[slidemo], ld);
 
-        var lineangle = RMain.R_PointToAngle2(0, 0, PSetup.lines_dx[ld], PSetup.lines_dy[ld]);
+        var lineangle = PSetup.lines_dxdy[ld];
+        lineangle = RMain.R_PointToAngle2(0, 0, lineangle << 16, lineangle & ~0xffff);
 
         if (side == 1) {
             lineangle += Tables.ANG180;
@@ -919,8 +928,9 @@ module PMap {
 
             var dist = MFixed.FixedMul(attackrange, PMapUtl.intercepts_frac[in]);
 
-            var front = PSetup.lines_frontsector[li];
-            var back = PSetup.lines_backsector[li];
+            var front = PSetup.lines_sectors[li];
+            var back = front >> 16;
+            front = front & 0xffff;
             if (PSetup.sectors_floorheight[front] != PSetup.sectors_floorheight[back]) {
                 var slope = MFixed.FixedDiv(PMapUtl.openbottom - shootz, dist);
                 if (slope > PSight.bottomslope) {
@@ -997,8 +1007,9 @@ module PMap {
 
             // (goto hitline becomes a flag)
             var hitline = false;
-            var front = PSetup.lines_frontsector[li];
-            var back = PSetup.lines_backsector[li];
+            var front = PSetup.lines_sectors[li];
+            var back = front >> 16;
+            front = front & 0xffff;
 
             if ((PSetup.lines_flags[li] & DoomData.ML_TWOSIDED) == 0) {
                 hitline = true;

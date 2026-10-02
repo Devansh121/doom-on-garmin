@@ -116,10 +116,8 @@ module PSight {
         // module arrays copied into locals for the loop
         var segs_linedef = PSetup.segs_linedef;
         var lines_validcount = PSetup.lines_validcount;
-        var lines_v1 = PSetup.lines_v1;
-        var lines_v2 = PSetup.lines_v2;
-        var vx = PSetup.vertexes_x;
-        var vy = PSetup.vertexes_y;
+        var lines_v1v2 = PSetup.lines_v1v2;
+        var vxy = PSetup.vertexes_xy;
         var floorheight = PSetup.sectors_floorheight;
         var ceilingheight = PSetup.sectors_ceilingheight;
         var valid = RMain.validcount;
@@ -144,20 +142,22 @@ module PSight {
 
             lines_validcount[line] = valid;
 
-            var v1 = lines_v1[line];
-            var v2 = lines_v2[line];
-            var s1 = P_DivlineSide(vx[v1], vy[v1], tr);
-            var s2 = P_DivlineSide(vx[v2], vy[v2], tr);
+            // the line's vertexes, packed x | y << 16 (see PSetup)
+            var v1 = lines_v1v2[line];
+            var v2 = vxy[v1 >> 16];
+            v1 = vxy[v1 & 0xffff];
+            var s1 = P_DivlineSide(v1 << 16, v1 & ~0xffff, tr);
+            var s2 = P_DivlineSide(v2 << 16, v2 & ~0xffff, tr);
 
             // line isn't crossed?
             if (s1 == s2) {
                 continue;
             }
 
-            divl[PMapUtl.DL_X] = vx[v1];
-            divl[PMapUtl.DL_Y] = vy[v1];
-            divl[PMapUtl.DL_DX] = vx[v2] - vx[v1];
-            divl[PMapUtl.DL_DY] = vy[v2] - vy[v1];
+            divl[PMapUtl.DL_X] = v1 << 16;
+            divl[PMapUtl.DL_Y] = v1 & ~0xffff;
+            divl[PMapUtl.DL_DX] = (v2 << 16) - (v1 << 16);
+            divl[PMapUtl.DL_DY] = (v2 & ~0xffff) - (v1 & ~0xffff);
             s1 = P_DivlineSide(tr[PMapUtl.DL_X], tr[PMapUtl.DL_Y], divl);
             s2 = P_DivlineSide(t2x, t2y, divl);
 
@@ -266,10 +266,8 @@ module PSight {
         var nodes_dy = PSetup.nodes_dy;
         var segs_linedef = PSetup.segs_linedef;
         var lines_validcount = PSetup.lines_validcount;
-        var lines_v1 = PSetup.lines_v1;
-        var lines_v2 = PSetup.lines_v2;
-        var vx = PSetup.vertexes_x;
-        var vy = PSetup.vertexes_y;
+        var lines_v1v2 = PSetup.lines_v1v2;
+        var vxy = PSetup.vertexes_xy;
         var valid = RMain.validcount;
         var sx = strace[PMapUtl.DL_X];
         var sy = strace[PMapUtl.DL_Y];
@@ -293,6 +291,7 @@ module PSight {
         var count;
         var seg;
         var line;
+        // the line's vertexes, packed x | y << 16 (see PSetup)
         var v1;
         var v2;
 
@@ -376,19 +375,20 @@ module PSight {
 
                     lines_validcount[line] = valid;
 
-                    v1 = lines_v1[line];
-                    v2 = lines_v2[line];
+                    v2 = lines_v1v2[line];
+                    v1 = vxy[v2 & 0xffff];
+                    v2 = vxy[v2 >> 16];
                     if (straight) {
-                        side = P_DivlineSide(vx[v1], vy[v1], strace);
-                        s = P_DivlineSide(vx[v2], vy[v2], strace);
+                        side = P_DivlineSide(v1 << 16, v1 & ~0xffff, strace);
+                        s = P_DivlineSide(v2 << 16, v2 & ~0xffff, strace);
                     } else {
                         // P_DivlineSide(x, y, strace), inlined; left in
                         // ndx, right in ndy
-                        ndx = sdyh * ((vx[v1] - sx) >> MFixed.FRACBITS);
-                        ndy = ((vy[v1] - sy) >> MFixed.FRACBITS) * sdxh;
+                        ndx = sdyh * (((v1 << 16) - sx) >> MFixed.FRACBITS);
+                        ndy = (((v1 & ~0xffff) - sy) >> MFixed.FRACBITS) * sdxh;
                         side = ndy < ndx ? 0 : (ndx == ndy ? 2 : 1);
-                        ndx = sdyh * ((vx[v2] - sx) >> MFixed.FRACBITS);
-                        ndy = ((vy[v2] - sy) >> MFixed.FRACBITS) * sdxh;
+                        ndx = sdyh * (((v2 << 16) - sx) >> MFixed.FRACBITS);
+                        ndy = (((v2 & ~0xffff) - sy) >> MFixed.FRACBITS) * sdxh;
                         s = ndy < ndx ? 0 : (ndx == ndy ? 2 : 1);
                     }
 
@@ -453,17 +453,15 @@ module PSight {
     }
 
     // The rest of P_CrossSubsector's line loop, for a line (of seg, from
-    // vertex v1 to v2) whose ends are on opposite sides of strace.
-    // Returns false if it blocks the sight line.
+    // vertex v1 to v2, both packed x | y << 16) whose ends are on opposite
+    // sides of strace. Returns false if it blocks the sight line.
     function P_CrossLine(seg as Number, line as Number, v1 as Number, v2 as Number) as Boolean {
-        var vx = PSetup.vertexes_x;
-        var vy = PSetup.vertexes_y;
         var divl = crossdiv;
 
-        divl[PMapUtl.DL_X] = vx[v1];
-        divl[PMapUtl.DL_Y] = vy[v1];
-        divl[PMapUtl.DL_DX] = vx[v2] - vx[v1];
-        divl[PMapUtl.DL_DY] = vy[v2] - vy[v1];
+        divl[PMapUtl.DL_X] = v1 << 16;
+        divl[PMapUtl.DL_Y] = v1 & ~0xffff;
+        divl[PMapUtl.DL_DX] = (v2 << 16) - (v1 << 16);
+        divl[PMapUtl.DL_DY] = (v2 & ~0xffff) - (v1 & ~0xffff);
         var s1 = P_DivlineSide(strace[PMapUtl.DL_X], strace[PMapUtl.DL_Y], divl);
         var s2 = P_DivlineSide(t2x, t2y, divl);
 

@@ -96,7 +96,8 @@ module PEnemy {
         var sectorlines = PSetup.sectors_lines;
         var linecounts = PSetup.sectors_linecount;
         var flags = PSetup.lines_flags;
-        var sidenum = PSetup.lines_sidenum;
+        // sidenum[0] | sidenum[1] << 16 (see PSetup)
+        var sidenums = PSetup.lines_sidenums;
         var sidesector = PSetup.sides_sector;
         var valid = RMain.validcount;
         var target = soundtarget;
@@ -151,10 +152,10 @@ module PEnemy {
             }
 
             var other;
-            if (sidesector[sidenum[check * 2]] == sec) {
-                other = sidesector[sidenum[check * 2 + 1]];
+            if (sidesector[sidenums[check] & 0xffff] == sec) {
+                other = sidesector[sidenums[check] >> 16];
             } else {
-                other = sidesector[sidenum[check * 2]];
+                other = sidesector[sidenums[check] & 0xffff];
             }
 
             var blocks;

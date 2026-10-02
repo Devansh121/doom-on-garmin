@@ -39,11 +39,13 @@ module PMapUtl {
     // Returns 0 or 1
     //
     function P_PointOnLineSide(x as Number, y as Number, line as Number) as Number {
-        var ldx = PSetup.lines_dx[line];
-        var ldy = PSetup.lines_dy[line];
-        var v1 = PSetup.lines_v1[line];
-        var lx = PSetup.vertexes_x[v1];
-        var ly = PSetup.vertexes_y[v1];
+        // line->dx, dy and v1 unpacked (see PSetup)
+        var ldy = PSetup.lines_dxdy[line];
+        var ldx = ldy << 16;
+        ldy = ldy & ~0xffff;
+        var lx = PSetup.vertexes_xy[PSetup.lines_v1v2[line] & 0xffff];
+        var ly = lx & ~0xffff;
+        lx = lx << 16;
 
         if (ldx == 0) {
             if (x <= lx) {
@@ -158,10 +160,11 @@ module PMapUtl {
 
         switch (PSetup.lines_slopetype[ld]) {
             case RDefs.ST_HORIZONTAL: {
-                var ly = PSetup.vertexes_y[PSetup.lines_v1[ld]];
+                // ld->v1->y, and ld->dx < 0 (see PSetup)
+                var ly = PSetup.vertexes_xy[PSetup.lines_v1v2[ld] & 0xffff] & ~0xffff;
                 p1 = tmbox[MBBox.BOXTOP] > ly ? 1 : 0;
                 p2 = tmbox[MBBox.BOXBOTTOM] > ly ? 1 : 0;
-                if (PSetup.lines_dx[ld] < 0) {
+                if ((PSetup.lines_dxdy[ld] << 16) < 0) {
                     p1 ^= 1;
                     p2 ^= 1;
                 }
@@ -169,10 +172,12 @@ module PMapUtl {
             }
 
             case RDefs.ST_VERTICAL: {
-                var lx = PSetup.vertexes_x[PSetup.lines_v1[ld]];
+                // ld->v1->x, and ld->dy < 0: dy is the high half, so
+                // the whole number has its sign
+                var lx = PSetup.vertexes_xy[PSetup.lines_v1v2[ld] & 0xffff] << 16;
                 p1 = tmbox[MBBox.BOXRIGHT] < lx ? 1 : 0;
                 p2 = tmbox[MBBox.BOXLEFT] < lx ? 1 : 0;
-                if (PSetup.lines_dy[ld] < 0) {
+                if (PSetup.lines_dxdy[ld] < 0) {
                     p1 ^= 1;
                     p2 ^= 1;
                 }
@@ -246,11 +251,12 @@ module PMapUtl {
     // P_MakeDivline
     //
     function P_MakeDivline(li as Number, dl as Array<Number>) as Void {
-        var v1 = PSetup.lines_v1[li];
-        dl[DL_X] = PSetup.vertexes_x[v1];
-        dl[DL_Y] = PSetup.vertexes_y[v1];
-        dl[DL_DX] = PSetup.lines_dx[li];
-        dl[DL_DY] = PSetup.lines_dy[li];
+        var w = PSetup.vertexes_xy[PSetup.lines_v1v2[li] & 0xffff];
+        dl[DL_X] = w << 16;
+        dl[DL_Y] = w & ~0xffff;
+        w = PSetup.lines_dxdy[li];
+        dl[DL_DX] = w << 16;
+        dl[DL_DY] = w & ~0xffff;
     }
 
     //
@@ -290,14 +296,15 @@ module PMapUtl {
     var lowfloor as Number = 0;
 
     function P_LineOpening(linedef as Number) as Void {
-        if (PSetup.lines_sidenum[linedef * 2 + 1] == -1) {
+        if ((PSetup.lines_sidenums[linedef] >> 16) == -1) {
             // single sided line
             openrange = 0;
             return;
         }
 
-        var front = PSetup.lines_frontsector[linedef];
-        var back = PSetup.lines_backsector[linedef];
+        var front = PSetup.lines_sectors[linedef];
+        var back = front >> 16;
+        front = front & 0xffff;
         var ceiling = PSetup.sectors_ceilingheight;
         var floor = PSetup.sectors_floorheight;
 
@@ -559,16 +566,18 @@ module PMapUtl {
         var s2;
         var frac;
         var dl = [0, 0, 0, 0] as Array<Number>;
-        var v1 = PSetup.lines_v1[ld];
-        var v2 = PSetup.lines_v2[ld];
+        // the packed vertexes (x | y << 16) of ld->v1 and v2
+        var v1 = PSetup.lines_v1v2[ld];
+        var v2 = PSetup.vertexes_xy[v1 >> 16];
+        v1 = PSetup.vertexes_xy[v1 & 0xffff];
 
         // avoid precision problems with two routines
         if (trace[DL_DX] > MFixed.FRACUNIT * 16
             || trace[DL_DY] > MFixed.FRACUNIT * 16
             || trace[DL_DX] < -MFixed.FRACUNIT * 16
             || trace[DL_DY] < -MFixed.FRACUNIT * 16) {
-            s1 = P_PointOnDivlineSide(PSetup.vertexes_x[v1], PSetup.vertexes_y[v1], trace);
-            s2 = P_PointOnDivlineSide(PSetup.vertexes_x[v2], PSetup.vertexes_y[v2], trace);
+            s1 = P_PointOnDivlineSide(v1 << 16, v1 & ~0xffff, trace);
+            s2 = P_PointOnDivlineSide(v2 << 16, v2 & ~0xffff, trace);
         } else {
             s1 = P_PointOnLineSide(trace[DL_X], trace[DL_Y], ld);
             s2 = P_PointOnLineSide(trace[DL_X] + trace[DL_DX], trace[DL_Y] + trace[DL_DY], ld);
@@ -589,7 +598,7 @@ module PMapUtl {
         // try to early out the check
         if (earlyout
             && frac < MFixed.FRACUNIT
-            && PSetup.lines_backsector[ld] == -1) {
+            && (PSetup.lines_sectors[ld] >> 16) == -1) {
             return false;   // stop checking
         }
 

@@ -355,8 +355,8 @@ module PMobj {
                     // explode a missile
                     var ceilingline = PMap.ceilingline;
                     if (ceilingline != -1
-                        && PSetup.lines_backsector[ceilingline] != -1
-                        && PSetup.sectors_ceilingpic[PSetup.lines_backsector[ceilingline]] == RData.skyflatnum) {
+                        && (PSetup.lines_sectors[ceilingline] >> 16) != -1
+                        && PSetup.sectors_ceilingpic[PSetup.lines_sectors[ceilingline] >> 16] == RData.skyflatnum) {
                         // Hack to prevent missiles exploding
                         // against the sky.
                         // Does not handle sky floors.

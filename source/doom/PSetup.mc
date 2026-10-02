@@ -3,8 +3,19 @@
 // Do all the WAD I/O, get map description,
 //  set up initial state and misc. LUTs.
 //
-// Structs from r_defs.h are stored one array per field (vertexes_x[i] is
-// vertexes[i].x) and pointers are indexes into those arrays, -1 for NULL.
+// Structs from r_defs.h are stored one array per field (sectors_tag[i] is
+// sectors[i].tag) and pointers are indexes into those arrays, -1 for NULL.
+//
+// Every element of a Monkey C array costs the same whatever it holds, so
+// fields that fit in 16 bits are kept two per number (see pack16 in
+// tools/wad2ciq.py), named after both: vertexes_xy[i] is x | y << 16.
+// The halves are read back with shifts and masks on the spot, not with
+// helper functions, because on the watch a call costs about 100 times a
+// local operation:
+//   x << FRACBITS (low half)   w << 16
+//   y << FRACBITS (high half)  w & ~0xffff
+//   unsigned low half          w & 0xffff
+//   signed high half           w >> 16
 //
 // What P_LoadVertexes .. P_LoadSegs and P_GroupLines work out from the
 // lumps never changes, so tools/wad2ciq.py does it at build time (the same
@@ -28,8 +39,8 @@ module PSetup {
     // Store VERTEXES, LINEDEFS, SIDEDEFS, etc.
     //
     var numvertexes as Number = 0;
-    var vertexes_x as Array<Number> = [] as Array<Number>;
-    var vertexes_y as Array<Number> = [] as Array<Number>;
+    // x | y << 16, in map units
+    var vertexes_xy as Array<Number> = [] as Array<Number>;
 
     var numsegs as Number = 0;
     var segs_v1 as Array<Number> = [] as Array<Number>;
@@ -84,19 +95,20 @@ module PSetup {
     var nodes_children as Array<Number> = [] as Array<Number>;
 
     var numlines as Number = 0;
-    var lines_v1 as Array<Number> = [] as Array<Number>;
-    var lines_v2 as Array<Number> = [] as Array<Number>;
-    var lines_dx as Array<Number> = [] as Array<Number>;
-    var lines_dy as Array<Number> = [] as Array<Number>;
+    // v1 | v2 << 16
+    var lines_v1v2 as Array<Number> = [] as Array<Number>;
+    // dx | dy << 16, in map units
+    var lines_dxdy as Array<Number> = [] as Array<Number>;
     var lines_flags as Array<Number> = [] as Array<Number>;
     var lines_special as Array<Number> = [] as Array<Number>;
     var lines_tag as Array<Number> = [] as Array<Number>;
-    // sidenum[2] per line: lines_sidenum[i*2 + side]
-    var lines_sidenum as Array<Number> = [] as Array<Number>;
+    // sidenum[0] | sidenum[1] << 16, sidenum[1] is -1 for one sided
+    // lines. sidenum[side] is (w << ((side ^ 1) << 4)) >> 16.
+    var lines_sidenums as Array<Number> = [] as Array<Number>;
     // (line_t's bbox isn't stored, PMap works it out)
     var lines_slopetype as Array<Number> = [] as Array<Number>;
-    var lines_frontsector as Array<Number> = [] as Array<Number>;
-    var lines_backsector as Array<Number> = [] as Array<Number>;
+    // frontsector | backsector << 16, backsector -1 for none
+    var lines_sectors as Array<Number> = [] as Array<Number>;
     var lines_validcount as Array<Number> = [] as Array<Number>;
     // (line_t's specialdata isn't kept: nothing in the C code uses it)
 
@@ -307,204 +319,30 @@ module PSetup {
 
     // Runs one step of the loading P_SetupLevel does in the C code.
     // Returns true once the level is fully set up.
-    //
-    // note: most of this ordering is important
     function P_SetupLevelStep() as Boolean {
-        switch (setupstep) {
-            case 0:
+        var step = setupstep;
+        // P_LoadBlockMap .. P_GroupLines: one array per step
+        if (step < MapLumps.NUMARRAYS) {
+            if (step == MapLumps.BLOCKMAP) {
                 P_LoadBlockMap();
-                break;
+            } else if (step != MapLumps.THINGS) {
+                P_LoadArray(step, W_LevelData(step));
+            }
+            return nextStep();
+        }
 
-            // P_LoadVertexes
-            case 1:
-                vertexes_x = W_LevelData(MapLumps.VERTEXES_X);
-                numvertexes = vertexes_x.size();
-                break;
-            case 2:
-                vertexes_y = W_LevelData(MapLumps.VERTEXES_Y);
-                break;
-
-            // P_LoadSectors
-            case 3:
-                sectors_floorheight = W_LevelData(MapLumps.SECTORS_FLOORHEIGHT);
-                numsectors = sectors_floorheight.size();
-                break;
-            case 4:
-                sectors_ceilingheight = W_LevelData(MapLumps.SECTORS_CEILINGHEIGHT);
-                break;
-            case 5:
-                // R_FlatNumForName was resolved by tools/wad2ciq.py
-                sectors_floorpic = W_LevelData(MapLumps.SECTORS_FLOORPIC);
-                break;
-            case 6:
-                sectors_ceilingpic = W_LevelData(MapLumps.SECTORS_CEILINGPIC);
-                break;
-            case 7:
-                sectors_lightlevel = W_LevelData(MapLumps.SECTORS_LIGHTLEVEL);
-                break;
-            case 8:
-                sectors_special = W_LevelData(MapLumps.SECTORS_SPECIAL);
-                break;
-            case 9:
-                sectors_tag = W_LevelData(MapLumps.SECTORS_TAG);
-                break;
-            case 10:
+        switch (step - MapLumps.NUMARRAYS) {
+            case 0:
+                // the fields play changes
                 sectors_validcount = filledArray(numsectors, 0);
                 sectors_thinglist = filledArray(numsectors, -1);
                 sectors_specialdata = filledArray(numsectors, -1);
                 sectors_soundtraversed = filledArray(numsectors, 0);
                 sectors_soundtarget = filledArray(numsectors, -1);
-                break;
-
-            // P_LoadSideDefs
-            case 11:
-                sides_textureoffset = W_LevelData(MapLumps.SIDES_TEXTUREOFFSET);
-                numsides = sides_textureoffset.size();
-                break;
-            case 12:
-                sides_rowoffset = W_LevelData(MapLumps.SIDES_ROWOFFSET);
-                break;
-            case 13:
-                // R_TextureNumForName was resolved by tools/wad2ciq.py
-                sides_toptexture = W_LevelData(MapLumps.SIDES_TOPTEXTURE);
-                break;
-            case 14:
-                sides_bottomtexture = W_LevelData(MapLumps.SIDES_BOTTOMTEXTURE);
-                break;
-            case 15:
-                sides_midtexture = W_LevelData(MapLumps.SIDES_MIDTEXTURE);
-                break;
-            case 16:
-                sides_sector = W_LevelData(MapLumps.SIDES_SECTOR);
-                break;
-
-            // P_LoadLineDefs
-            case 17:
-                lines_v1 = W_LevelData(MapLumps.LINES_V1);
-                numlines = lines_v1.size();
-                break;
-            case 18:
-                lines_v2 = W_LevelData(MapLumps.LINES_V2);
-                break;
-            case 19:
-                lines_dx = W_LevelData(MapLumps.LINES_DX);
-                break;
-            case 20:
-                lines_dy = W_LevelData(MapLumps.LINES_DY);
-                break;
-            case 21:
-                lines_flags = W_LevelData(MapLumps.LINES_FLAGS);
-                break;
-            case 22:
-                lines_special = W_LevelData(MapLumps.LINES_SPECIAL);
-                break;
-            case 23:
-                // one spare slot past the last line: the "line_t junk"
-                // p_enemy passes to EV_DoDoor / EV_DoFloor
-                lines_tag = W_LevelData(MapLumps.LINES_TAG);
-                break;
-            case 24:
-                lines_sidenum = W_LevelData(MapLumps.LINES_SIDENUM);
-                break;
-            case 25:
-                // (line_t's bbox isn't stored, PMap works it out)
-                lines_slopetype = W_LevelData(MapLumps.LINES_SLOPETYPE);
-                break;
-            case 26:
-                lines_frontsector = W_LevelData(MapLumps.LINES_FRONTSECTOR);
-                break;
-            case 27:
-                lines_backsector = W_LevelData(MapLumps.LINES_BACKSECTOR);
-                break;
-            case 28:
                 lines_validcount = filledArray(numlines, 0);
-                break;
+                return nextStep();
 
-            // P_LoadSubsectors
-            case 29:
-                subsectors_numlines = W_LevelData(MapLumps.SUBSECTORS_NUMLINES);
-                numsubsectors = subsectors_numlines.size();
-                break;
-            case 30:
-                subsectors_firstline = W_LevelData(MapLumps.SUBSECTORS_FIRSTLINE);
-                break;
-
-            // P_LoadNodes
-            case 31:
-                nodes_x = W_LevelData(MapLumps.NODES_X);
-                numnodes = nodes_x.size();
-                break;
-            case 32:
-                nodes_y = W_LevelData(MapLumps.NODES_Y);
-                break;
-            case 33:
-                nodes_dx = W_LevelData(MapLumps.NODES_DX);
-                break;
-            case 34:
-                nodes_dy = W_LevelData(MapLumps.NODES_DY);
-                break;
-            case 35:
-                nodes_bbox = W_LevelData(MapLumps.NODES_BBOX);
-                break;
-            case 36:
-                nodes_children = W_LevelData(MapLumps.NODES_CHILDREN);
-                break;
-
-            // P_LoadSegs
-            case 37:
-                segs_v1 = W_LevelData(MapLumps.SEGS_V1);
-                numsegs = segs_v1.size();
-                break;
-            case 38:
-                segs_v2 = W_LevelData(MapLumps.SEGS_V2);
-                break;
-            case 39:
-                segs_offset = W_LevelData(MapLumps.SEGS_OFFSET);
-                break;
-            case 40:
-                segs_angle = W_LevelData(MapLumps.SEGS_ANGLE);
-                break;
-            case 41:
-                segs_sidedef = W_LevelData(MapLumps.SEGS_SIDEDEF);
-                break;
-            case 42:
-                segs_linedef = W_LevelData(MapLumps.SEGS_LINEDEF);
-                break;
-            case 43:
-                segs_frontsector = W_LevelData(MapLumps.SEGS_FRONTSECTOR);
-                break;
-            case 44:
-                segs_backsector = W_LevelData(MapLumps.SEGS_BACKSECTOR);
-                break;
-
-            case 45:
-                rejectmatrix = W_LevelData(MapLumps.REJECT);
-                break;
-
-            // P_GroupLines
-            case 46:
-                subsectors_sector = W_LevelData(MapLumps.SUBSECTORS_SECTOR);
-                break;
-            case 47:
-                linebuffer = W_LevelData(MapLumps.LINEBUFFER);
-                break;
-            case 48:
-                sectors_lines = W_LevelData(MapLumps.SECTORS_LINES);
-                break;
-            case 49:
-                sectors_linecount = W_LevelData(MapLumps.SECTORS_LINECOUNT);
-                break;
-            case 50:
-                sectors_blockbox = W_LevelData(MapLumps.SECTORS_BLOCKBOX);
-                break;
-            case 51:
-                sectors_soundorg_x = W_LevelData(MapLumps.SECTORS_SOUNDORG_X);
-                break;
-            case 52:
-                sectors_soundorg_y = W_LevelData(MapLumps.SECTORS_SOUNDORG_Y);
-                break;
-
-            case 53:
+            case 1:
                 if (setupindex == 0) {
                     data = W_LevelData(MapLumps.THINGS);
                     numthings = data.size() / 5;
@@ -521,14 +359,168 @@ module PSetup {
                 PSpec.P_SpawnSpecials();
                 return true;
         }
-        return nextStep();
+    }
+
+    // Keeps array a as the current level's MapLumps array k.
+    function P_LoadArray(k as Number, a as Array<Number>) as Void {
+        switch (k) {
+            case MapLumps.VERTEXES_XY:
+                vertexes_xy = a;
+                numvertexes = a.size();
+                break;
+            case MapLumps.SECTORS_FLOORHEIGHT:
+                sectors_floorheight = a;
+                numsectors = a.size();
+                break;
+            case MapLumps.SECTORS_CEILINGHEIGHT:
+                sectors_ceilingheight = a;
+                break;
+            case MapLumps.SECTORS_FLOORPIC:
+                // R_FlatNumForName was resolved by tools/wad2ciq.py
+                sectors_floorpic = a;
+                break;
+            case MapLumps.SECTORS_CEILINGPIC:
+                sectors_ceilingpic = a;
+                break;
+            case MapLumps.SECTORS_LIGHTLEVEL:
+                sectors_lightlevel = a;
+                break;
+            case MapLumps.SECTORS_SPECIAL:
+                sectors_special = a;
+                break;
+            case MapLumps.SECTORS_TAG:
+                sectors_tag = a;
+                break;
+            case MapLumps.SIDES_TEXTUREOFFSET:
+                sides_textureoffset = a;
+                numsides = a.size();
+                break;
+            case MapLumps.SIDES_ROWOFFSET:
+                sides_rowoffset = a;
+                break;
+            case MapLumps.SIDES_TOPTEXTURE:
+                // R_TextureNumForName was resolved by tools/wad2ciq.py
+                sides_toptexture = a;
+                break;
+            case MapLumps.SIDES_BOTTOMTEXTURE:
+                sides_bottomtexture = a;
+                break;
+            case MapLumps.SIDES_MIDTEXTURE:
+                sides_midtexture = a;
+                break;
+            case MapLumps.SIDES_SECTOR:
+                sides_sector = a;
+                break;
+            case MapLumps.LINES_V1V2:
+                lines_v1v2 = a;
+                numlines = a.size();
+                break;
+            case MapLumps.LINES_DXDY:
+                lines_dxdy = a;
+                break;
+            case MapLumps.LINES_FLAGS:
+                lines_flags = a;
+                break;
+            case MapLumps.LINES_SPECIAL:
+                lines_special = a;
+                break;
+            case MapLumps.LINES_TAG:
+                // one spare slot past the last line: the "line_t junk"
+                // p_enemy passes to EV_DoDoor / EV_DoFloor
+                lines_tag = a;
+                break;
+            case MapLumps.LINES_SIDENUMS:
+                lines_sidenums = a;
+                break;
+            case MapLumps.LINES_SLOPETYPE:
+                // (line_t's bbox isn't stored, PMap works it out)
+                lines_slopetype = a;
+                break;
+            case MapLumps.LINES_SECTORS:
+                lines_sectors = a;
+                break;
+            case MapLumps.SUBSECTORS_NUMLINES:
+                subsectors_numlines = a;
+                numsubsectors = a.size();
+                break;
+            case MapLumps.SUBSECTORS_FIRSTLINE:
+                subsectors_firstline = a;
+                break;
+            case MapLumps.NODES_X:
+                nodes_x = a;
+                numnodes = a.size();
+                break;
+            case MapLumps.NODES_Y:
+                nodes_y = a;
+                break;
+            case MapLumps.NODES_DX:
+                nodes_dx = a;
+                break;
+            case MapLumps.NODES_DY:
+                nodes_dy = a;
+                break;
+            case MapLumps.NODES_BBOX:
+                nodes_bbox = a;
+                break;
+            case MapLumps.NODES_CHILDREN:
+                nodes_children = a;
+                break;
+            case MapLumps.SEGS_V1:
+                segs_v1 = a;
+                numsegs = a.size();
+                break;
+            case MapLumps.SEGS_V2:
+                segs_v2 = a;
+                break;
+            case MapLumps.SEGS_OFFSET:
+                segs_offset = a;
+                break;
+            case MapLumps.SEGS_ANGLE:
+                segs_angle = a;
+                break;
+            case MapLumps.SEGS_SIDEDEF:
+                segs_sidedef = a;
+                break;
+            case MapLumps.SEGS_LINEDEF:
+                segs_linedef = a;
+                break;
+            case MapLumps.SEGS_FRONTSECTOR:
+                segs_frontsector = a;
+                break;
+            case MapLumps.SEGS_BACKSECTOR:
+                segs_backsector = a;
+                break;
+            case MapLumps.REJECT:
+                rejectmatrix = a;
+                break;
+            case MapLumps.SUBSECTORS_SECTOR:
+                subsectors_sector = a;
+                break;
+            case MapLumps.LINEBUFFER:
+                linebuffer = a;
+                break;
+            case MapLumps.SECTORS_LINES:
+                sectors_lines = a;
+                break;
+            case MapLumps.SECTORS_LINECOUNT:
+                sectors_linecount = a;
+                break;
+            case MapLumps.SECTORS_BLOCKBOX:
+                sectors_blockbox = a;
+                break;
+            case MapLumps.SECTORS_SOUNDORG_X:
+                sectors_soundorg_x = a;
+                break;
+            case MapLumps.SECTORS_SOUNDORG_Y:
+                sectors_soundorg_y = a;
+                break;
+        }
     }
 
     // Z_FreeTags for the level's arrays.
     function P_FreeLevel() as Void {
         var none = [] as Array<Number>;
-        vertexes_x = none;
-        vertexes_y = none;
+        vertexes_xy = none;
         segs_v1 = none;
         segs_v2 = none;
         segs_offset = none;
@@ -563,17 +555,14 @@ module PSetup {
         nodes_dy = none;
         nodes_bbox = none;
         nodes_children = none;
-        lines_v1 = none;
-        lines_v2 = none;
-        lines_dx = none;
-        lines_dy = none;
+        lines_v1v2 = none;
+        lines_dxdy = none;
         lines_flags = none;
         lines_special = none;
         lines_tag = none;
-        lines_sidenum = none;
+        lines_sidenums = none;
         lines_slopetype = none;
-        lines_frontsector = none;
-        lines_backsector = none;
+        lines_sectors = none;
         lines_validcount = none;
         sides_textureoffset = none;
         sides_rowoffset = none;

@@ -316,8 +316,8 @@ module PFloor {
                     d[FM_SECTOR] = sec;
                     d[FM_SPEED] = PSpec.FLOORSPEED;
                     d[FM_FLOORDESTHEIGHT] = PSetup.sectors_floorheight[sec] + 24 * MFixed.FRACUNIT;
-                    PSetup.sectors_floorpic[sec] = PSetup.sectors_floorpic[PSetup.lines_frontsector[line]];
-                    PSetup.sectors_special[sec] = PSetup.sectors_special[PSetup.lines_frontsector[line]];
+                    PSetup.sectors_floorpic[sec] = PSetup.sectors_floorpic[PSetup.lines_sectors[line] & 0xffff];
+                    PSetup.sectors_special[sec] = PSetup.sectors_special[PSetup.lines_sectors[line] & 0xffff];
                     break;
 
                 case PSpec.raiseToTexture:
@@ -388,8 +388,8 @@ module PFloor {
     function EV_BuildStairs(line as Number, type as Number) as Number {
         var buffer = PSetup.linebuffer;
         var flags = PSetup.lines_flags;
-        var front = PSetup.lines_frontsector;
-        var back = PSetup.lines_backsector;
+        // frontsector | backsector << 16 (see PSetup)
+        var sectors = PSetup.lines_sectors;
         var rtn = 0;
         var speed = 0;
         var stairsize = 0;
@@ -442,14 +442,14 @@ module PFloor {
                         continue;
                     }
 
-                    var tsec = front[l];
+                    var tsec = sectors[l] & 0xffff;
                     var newsecnum = tsec;
 
                     if (secnum != newsecnum) {
                         continue;
                     }
 
-                    tsec = back[l];
+                    tsec = sectors[l] >> 16;
                     newsecnum = tsec;
 
                     if (PSetup.sectors_floorpic[tsec] != texture) {
