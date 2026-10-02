@@ -9,9 +9,10 @@
 // Every element of a Monkey C array costs the same whatever it holds, so
 // fields that fit in 16 bits are kept two per number (see pack16 in
 // tools/wad2ciq.py), named after both: vertexes_xy[i] is x | y << 16.
-// The halves are read back with shifts and masks on the spot, not with
-// helper functions, because on the watch a call costs about 100 times a
-// local operation:
+// Fields whose values always fit in 0..255 are ByteArrays, 1 byte per
+// value. The halves of a packed number are read back with shifts and
+// masks on the spot, not with helper functions, because on the watch a
+// call costs about 100 times a local operation:
 //   x << FRACBITS (low half)   w << 16
 //   y << FRACBITS (high half)  w & ~0xffff
 //   unsigned low half          w & 0xffff
@@ -29,6 +30,7 @@
 // one array (or a slice of the things) at a time.
 
 import Toybox.Lang;
+import Toybox.StringUtil;
 import Toybox.WatchUi;
 
 (:extendedCode)
@@ -56,10 +58,10 @@ module PSetup {
     var numsectors as Number = 0;
     var sectors_floorheight as Array<Number> = [] as Array<Number>;
     var sectors_ceilingheight as Array<Number> = [] as Array<Number>;
-    var sectors_floorpic as Array<Number> = [] as Array<Number>;
-    var sectors_ceilingpic as Array<Number> = [] as Array<Number>;
+    var sectors_floorpic as ByteArray = []b;
+    var sectors_ceilingpic as ByteArray = []b;
     var sectors_lightlevel as Array<Number> = [] as Array<Number>;
-    var sectors_special as Array<Number> = [] as Array<Number>;
+    var sectors_special as ByteArray = []b;
     var sectors_tag as Array<Number> = [] as Array<Number>;
     // if == validcount, already checked
     var sectors_validcount as Array<Number> = [] as Array<Number>;
@@ -75,7 +77,7 @@ module PSetup {
     // thinker_t for reversable actions, -1 for none
     var sectors_specialdata as Array<Number> = [] as Array<Number>;
     // 0 = untraversed, 1,2 = sndlines -1
-    var sectors_soundtraversed as Array<Number> = [] as Array<Number>;
+    var sectors_soundtraversed as ByteArray = []b;
     // thing that made a sound (or null)
     var sectors_soundtarget as Array<Number> = [] as Array<Number>;
     // index of the sector's first entry in linebuffer
@@ -104,13 +106,13 @@ module PSetup {
     // dx | dy << 16, in map units
     var lines_dxdy as Array<Number> = [] as Array<Number>;
     var lines_flags as Array<Number> = [] as Array<Number>;
-    var lines_special as Array<Number> = [] as Array<Number>;
+    var lines_special as ByteArray = []b;
     var lines_tag as Array<Number> = [] as Array<Number>;
     // sidenum[0] | sidenum[1] << 16, sidenum[1] is -1 for one sided
     // lines. sidenum[side] is (w << ((side ^ 1) << 4)) >> 16.
     var lines_sidenums as Array<Number> = [] as Array<Number>;
     // (line_t's bbox isn't stored, PMap works it out)
-    var lines_slopetype as Array<Number> = [] as Array<Number>;
+    var lines_slopetype as ByteArray = []b;
     // frontsector | backsector << 16, backsector -1 for none
     var lines_sectors as Array<Number> = [] as Array<Number>;
     var lines_validcount as Array<Number> = [] as Array<Number>;
@@ -171,9 +173,18 @@ module PSetup {
     // NUMMOBJTYPES) and P_SpawnMobj walks the BSP for every thing.
     const THINGCHUNK = 8;
 
-    // One of the current map's arrays, by its MapLumps index.
-    function W_LevelData(k as Number) as Array<Number> {
-        return WatchUi.loadResource((lumps as Array<ResourceId>)[k]) as Array<Number>;
+    // One of the current map's arrays, by its MapLumps index. Byte arrays
+    // are stored as base64 strings (see wad2ciq.py), which the system
+    // decodes in one call.
+    function W_LevelData(k as Number) as Array<Number> or ByteArray {
+        var r = WatchUi.loadResource((lumps as Array<ResourceId>)[k]);
+        if (r instanceof String) {
+            return StringUtil.convertEncodedString(r, {
+                :fromRepresentation => StringUtil.REPRESENTATION_STRING_BASE64,
+                :toRepresentation => StringUtil.REPRESENTATION_BYTE_ARRAY
+            }) as ByteArray;
+        }
+        return r as Array<Number>;
     }
 
     function newArray(n as Number) as Array<Number> {
@@ -242,7 +253,7 @@ module PSetup {
     function P_LoadBlockMap() as Void {
         // SHORT() byte swapping isn't needed, wad2ciq.py already
         // unpacked the lump as little-endian shorts.
-        blockmaplump = W_LevelData(MapLumps.BLOCKMAP);
+        blockmaplump = W_LevelData(MapLumps.BLOCKMAP) as Array<Number>;
 
         bmaporgx = P_BlockmapLump(0) << MFixed.FRACBITS;
         bmaporgy = P_BlockmapLump(1) << MFixed.FRACBITS;
@@ -316,7 +327,7 @@ module PSetup {
         lumps = maplumps;
 
         // Size the thinker pool for the things that will actually spawn.
-        PTick.P_InitThinkers(P_CountSpawnedThings(W_LevelData(MapLumps.THINGS)));
+        PTick.P_InitThinkers(P_CountSpawnedThings(W_LevelData(MapLumps.THINGS) as Array<Number>));
         PTick.leveltime = 0;
         setupstep = 0;
         setupindex = 0;
@@ -342,14 +353,14 @@ module PSetup {
                 sectors_validcount = filledArray(numsectors, 0);
                 sectors_thinglist = filledArray(numsectors, -1);
                 sectors_specialdata = filledArray(numsectors, -1);
-                sectors_soundtraversed = filledArray(numsectors, 0);
+                sectors_soundtraversed = new [numsectors]b;
                 sectors_soundtarget = filledArray(numsectors, -1);
                 lines_validcount = filledArray(numlines, 0);
                 return nextStep();
 
             case 1:
                 if (setupindex == 0) {
-                    data = W_LevelData(MapLumps.THINGS);
+                    data = W_LevelData(MapLumps.THINGS) as Array<Number>;
                     numthings = data.size() / 5;
                 }
                 return slice(numthings, THINGCHUNK, new Lang.Method(PSetup, :P_LoadThings));
@@ -367,127 +378,127 @@ module PSetup {
     }
 
     // Keeps array a as the current level's MapLumps array k.
-    function P_LoadArray(k as Number, a as Array<Number>) as Void {
+    function P_LoadArray(k as Number, a as Array<Number> or ByteArray) as Void {
         switch (k) {
             case MapLumps.VERTEXES_XY:
-                vertexes_xy = a;
+                vertexes_xy = a as Array<Number>;
                 numvertexes = a.size();
                 break;
             case MapLumps.SECTORS_FLOORHEIGHT:
-                sectors_floorheight = a;
+                sectors_floorheight = a as Array<Number>;
                 numsectors = a.size();
                 break;
             case MapLumps.SECTORS_CEILINGHEIGHT:
-                sectors_ceilingheight = a;
+                sectors_ceilingheight = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_FLOORPIC:
                 // R_FlatNumForName was resolved by tools/wad2ciq.py
-                sectors_floorpic = a;
+                sectors_floorpic = a as ByteArray;
                 break;
             case MapLumps.SECTORS_CEILINGPIC:
-                sectors_ceilingpic = a;
+                sectors_ceilingpic = a as ByteArray;
                 break;
             case MapLumps.SECTORS_LIGHTLEVEL:
-                sectors_lightlevel = a;
+                sectors_lightlevel = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_SPECIAL:
-                sectors_special = a;
+                sectors_special = a as ByteArray;
                 break;
             case MapLumps.SECTORS_TAG:
-                sectors_tag = a;
+                sectors_tag = a as Array<Number>;
                 break;
             case MapLumps.SIDES_TEXTUREOFFSET:
-                sides_textureoffset = a;
+                sides_textureoffset = a as Array<Number>;
                 numsides = a.size();
                 break;
             case MapLumps.SIDES_TEXTURES:
                 // R_TextureNumForName was resolved by tools/wad2ciq.py
-                sides_textures = a;
+                sides_textures = a as Array<Number>;
                 break;
             case MapLumps.SIDES_SECTOR:
-                sides_sector = a;
+                sides_sector = a as Array<Number>;
                 break;
             case MapLumps.LINES_V1V2:
-                lines_v1v2 = a;
+                lines_v1v2 = a as Array<Number>;
                 numlines = a.size();
                 break;
             case MapLumps.LINES_DXDY:
-                lines_dxdy = a;
+                lines_dxdy = a as Array<Number>;
                 break;
             case MapLumps.LINES_FLAGS:
-                lines_flags = a;
+                lines_flags = a as Array<Number>;
                 break;
             case MapLumps.LINES_SPECIAL:
-                lines_special = a;
+                lines_special = a as ByteArray;
                 break;
             case MapLumps.LINES_TAG:
                 // one spare slot past the last line: the "line_t junk"
                 // p_enemy passes to EV_DoDoor / EV_DoFloor
-                lines_tag = a;
+                lines_tag = a as Array<Number>;
                 break;
             case MapLumps.LINES_SIDENUMS:
-                lines_sidenums = a;
+                lines_sidenums = a as Array<Number>;
                 break;
             case MapLumps.LINES_SLOPETYPE:
                 // (line_t's bbox isn't stored, PMap works it out)
-                lines_slopetype = a;
+                lines_slopetype = a as ByteArray;
                 break;
             case MapLumps.LINES_SECTORS:
-                lines_sectors = a;
+                lines_sectors = a as Array<Number>;
                 break;
             case MapLumps.SUBSECTORS_LINES:
-                subsectors_lines = a;
+                subsectors_lines = a as Array<Number>;
                 numsubsectors = a.size();
                 break;
             case MapLumps.NODES_XY:
-                nodes_xy = a;
+                nodes_xy = a as Array<Number>;
                 numnodes = a.size();
                 break;
             case MapLumps.NODES_DXDY:
-                nodes_dxdy = a;
+                nodes_dxdy = a as Array<Number>;
                 break;
             case MapLumps.NODES_BBOX:
-                nodes_bbox = a;
+                nodes_bbox = a as Array<Number>;
                 break;
             case MapLumps.NODES_CHILDREN:
-                nodes_children = a;
+                nodes_children = a as Array<Number>;
                 break;
             case MapLumps.SEGS_V1V2:
-                segs_v1v2 = a;
+                segs_v1v2 = a as Array<Number>;
                 numsegs = a.size();
                 break;
             case MapLumps.SEGS_OFFSETANGLE:
-                segs_offsetangle = a;
+                segs_offsetangle = a as Array<Number>;
                 break;
             case MapLumps.SEGS_SIDEDEFLINEDEF:
-                segs_sidedeflinedef = a;
+                segs_sidedeflinedef = a as Array<Number>;
                 break;
             case MapLumps.SEGS_SECTORS:
-                segs_sectors = a;
+                segs_sectors = a as Array<Number>;
                 break;
             case MapLumps.REJECT:
-                rejectmatrix = a;
+                rejectmatrix = a as Array<Number>;
                 break;
             case MapLumps.SUBSECTORS_SECTOR:
-                subsectors_sector = a;
+                subsectors_sector = a as Array<Number>;
                 break;
             case MapLumps.LINEBUFFER:
-                linebuffer = a;
+                linebuffer = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_LINES:
-                sectors_lines = a;
+                sectors_lines = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_LINECOUNT:
-                sectors_linecount = a;
+                sectors_linecount = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_BLOCKBOX:
-                sectors_blockbox = a;
+                sectors_blockbox = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_SOUNDORG_X:
-                sectors_soundorg_x = a;
+                sectors_soundorg_x = a as Array<Number>;
                 break;
             case MapLumps.SECTORS_SOUNDORG_Y:
-                sectors_soundorg_y = a;
+                sectors_soundorg_y = a as Array<Number>;
                 break;
         }
     }
@@ -502,10 +513,10 @@ module PSetup {
         segs_sectors = none;
         sectors_floorheight = none;
         sectors_ceilingheight = none;
-        sectors_floorpic = none;
-        sectors_ceilingpic = none;
+        sectors_floorpic = []b;
+        sectors_ceilingpic = []b;
         sectors_lightlevel = none;
-        sectors_special = none;
+        sectors_special = []b;
         sectors_tag = none;
         sectors_validcount = none;
         sectors_blockbox = none;
@@ -514,7 +525,7 @@ module PSetup {
         sectors_linecount = none;
         sectors_thinglist = none;
         sectors_specialdata = none;
-        sectors_soundtraversed = none;
+        sectors_soundtraversed = []b;
         sectors_soundtarget = none;
         sectors_lines = none;
         subsectors_sector = none;
@@ -526,10 +537,10 @@ module PSetup {
         lines_v1v2 = none;
         lines_dxdy = none;
         lines_flags = none;
-        lines_special = none;
+        lines_special = []b;
         lines_tag = none;
         lines_sidenums = none;
-        lines_slopetype = none;
+        lines_slopetype = []b;
         lines_sectors = none;
         lines_validcount = none;
         sides_textureoffset = none;

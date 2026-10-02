@@ -18,6 +18,7 @@ it isn't GPL, so we don't commit data derived from it.
 """
 
 import argparse
+import base64
 import json
 import os
 import struct
@@ -312,6 +313,18 @@ def pack16(lo, hi):
     return s32((lo & 0xFFFF) | ((hi & 0xFFFF) << 16))
 
 
+class Bytes(list):
+    """An array whose values all fit in 0..255. It's written as a base64
+    string, which PSetup turns into a ByteArray (1 byte per value, not 5
+    like an array element)."""
+
+    def encode(self):
+        for v in self:
+            if not 0 <= v <= 255:
+                sys.exit(f"Bytes: {v} doesn't fit in a byte")
+        return base64.b64encode(bytes(self)).decode("ascii")
+
+
 def m_clear_box():
     box = [0] * 4
     box[BOXTOP] = box[BOXRIGHT] = MININT
@@ -401,10 +414,11 @@ def level_arrays(raw):
     numsectors = len(ms) // 7
     out["sectors_floorheight"] = [s32(h << FRACBITS) for h in ms[0::7]]
     out["sectors_ceilingheight"] = [s32(h << FRACBITS) for h in ms[1::7]]
-    out["sectors_floorpic"] = ms[2::7]
-    out["sectors_ceilingpic"] = ms[3::7]
+    out["sectors_floorpic"] = Bytes(ms[2::7])
+    out["sectors_ceilingpic"] = Bytes(ms[3::7])
+    # (not Bytes: T_Glow steps past 255 and below 0 before turning back)
     out["sectors_lightlevel"] = ms[4::7]
-    out["sectors_special"] = ms[5::7]
+    out["sectors_special"] = Bytes(ms[5::7])
     out["sectors_tag"] = ms[6::7]
 
     # P_LoadSideDefs
@@ -452,7 +466,7 @@ def level_arrays(raw):
     # dx | dy << 16 in map units: dx = w << 16, dy = w & ~0xffff
     out["lines_dxdy"] = [pack16(dx >> FRACBITS, dy >> FRACBITS) for dx, dy in zip(ldx, ldy)]
     out["lines_flags"] = mld[2::7]
-    out["lines_special"] = mld[3::7]
+    out["lines_special"] = Bytes(mld[3::7])
     # one spare slot past the last line: the "line_t junk" p_enemy passes
     # to EV_DoDoor / EV_DoFloor
     out["lines_tag"] = mld[4::7] + [0]
@@ -460,7 +474,7 @@ def level_arrays(raw):
     # (w << ((side ^ 1) << 4)) >> 16, so sidenum[0] = (w << 16) >> 16
     # (or w & 0xffff, it's never -1) and sidenum[1] = w >> 16
     out["lines_sidenums"] = [pack16(sidenum[i * 2], sidenum[i * 2 + 1]) for i in range(numlines)]
-    out["lines_slopetype"] = slope
+    out["lines_slopetype"] = Bytes(slope)
     # frontsector | backsector << 16: front = w & 0xffff, back = w >> 16
     out["lines_sectors"] = [pack16(f, b) for f, b in zip(front, back)]
 
@@ -636,8 +650,9 @@ def main():
         for name in fields:
             rid = f"{mapname}_{name}".lower()
             fname = f"{rid}.json"
+            values = level[name]
             with open(os.path.join(resdir, fname), "w") as f:
-                json.dump(level[name], f, separators=(",", ":"))
+                json.dump(values.encode() if isinstance(values, Bytes) else values, f, separators=(",", ":"))
             entries.append(f'    <jsonData id="{rid}" filename="{fname}" />')
             print(f"{rid}: {len(level[name])} values")
         ids = ", ".join(f"Rez.JsonData.{mapname.lower()}_{name}" for name in fields)
