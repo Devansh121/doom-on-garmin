@@ -43,7 +43,7 @@ function testSetupLevelE1M1(logger as Test.Logger) as Boolean {
         Test.assertEqualMessage(PSetup.sectors_soundorg_x[s], e[2], "soundorg x " + s);
         Test.assertEqualMessage(PSetup.sectors_soundorg_y[s], e[3], "soundorg y " + s);
         for (var k = 0; k < 4; k++) {
-            Test.assertEqualMessage(PSetup.sectors_blockbox[s * 4 + k], e[4 + k], "blockbox " + s + " " + k);
+            Test.assertEqualMessage((PSetup.sectors_blockbox[s] >> (k << 3)) & 0xff, e[4 + k], "blockbox " + s + " " + k);
         }
     }
 

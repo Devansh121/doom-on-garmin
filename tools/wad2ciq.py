@@ -411,10 +411,13 @@ def level_arrays(raw):
     msd = raw["sidedefs"]
     side_sector = msd[5::6]
     out["sides_textureoffset"] = [s32(o << FRACBITS) for o in msd[0::6]]
-    out["sides_rowoffset"] = [s32(o << FRACBITS) for o in msd[1::6]]
-    out["sides_toptexture"] = msd[2::6]
-    out["sides_bottomtexture"] = msd[3::6]
-    out["sides_midtexture"] = msd[4::6]
+    # (rowoffset isn't kept: walls are drawn without texturemid, so
+    # nothing reads it)
+    # toptexture | bottomtexture << 10 | midtexture << 20
+    for t in msd[2::6] + msd[3::6] + msd[4::6]:
+        if not 0 <= t < 1024:
+            sys.exit(f"texture number {t} doesn't fit in 10 bits")
+    out["sides_textures"] = [t | b << 10 | m << 20 for t, b, m in zip(msd[2::6], msd[3::6], msd[4::6])]
     out["sides_sector"] = side_sector
 
     # P_LoadLineDefs
@@ -541,6 +544,7 @@ def level_arrays(raw):
         soundorg_y.append(cdiv(s32(bbox[BOXTOP] + bbox[BOXBOTTOM]), 2))
 
         # adjust bounding box to map blocks
+        # blockbox[k] is byte k: top | bottom << 8 | left << 16 | right << 24
         box = [0] * 4
         block = s32(bbox[BOXTOP] - bmaporgy + MAXRADIUS) >> MAPBLOCKSHIFT
         box[BOXTOP] = bmapheight - 1 if block >= bmapheight else block
@@ -550,7 +554,9 @@ def level_arrays(raw):
         box[BOXRIGHT] = bmapwidth - 1 if block >= bmapwidth else block
         block = s32(bbox[BOXLEFT] - bmaporgx - MAXRADIUS) >> MAPBLOCKSHIFT
         box[BOXLEFT] = 0 if block < 0 else block
-        blockbox += box
+        if not all(0 <= b < 256 for b in box):
+            sys.exit(f"sector {i}'s blockbox doesn't fit in bytes")
+        blockbox.append(s32(box[0] | box[1] << 8 | box[2] << 16 | box[3] << 24))
     out["sectors_blockbox"] = blockbox
     out["sectors_soundorg_x"] = soundorg_x
     out["sectors_soundorg_y"] = soundorg_y

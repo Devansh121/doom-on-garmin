@@ -447,24 +447,24 @@ function testSwitchTexture(logger as Test.Logger) as Boolean {
     // the exit switch, line 330: SW1EXIT (100) to SW2EXIT (119)
     var s = PSetup.lines_sidenums[330] & 0xffff;
     Test.assertEqual(s, 452);
-    Test.assertEqual(PSetup.sides_midtexture[s], 100);
+    Test.assertEqual((PSetup.sides_textures[s] >> 20), 100);
 
     // as a button it flips back after BUTTONTIME
     PSwitch.P_ChangeSwitchTexture(330, 1);
-    Test.assertEqual(PSetup.sides_toptexture[s], 0);
-    Test.assertEqual(PSetup.sides_midtexture[s], 119);
-    Test.assertEqual(PSetup.sides_bottomtexture[s], 0);
+    Test.assertEqual((PSetup.sides_textures[s] & 0x3ff), 0);
+    Test.assertEqual((PSetup.sides_textures[s] >> 20), 119);
+    Test.assertEqual(((PSetup.sides_textures[s] >> 10) & 0x3ff), 0);
     Test.assertEqual(PSetup.lines_special[330], 11);
     for (var t = 0; t < PSpec.BUTTONTIME - 1; t++) {
         PSpec.P_UpdateSpecials();
     }
-    Test.assertEqual(PSetup.sides_midtexture[s], 119);
+    Test.assertEqual((PSetup.sides_textures[s] >> 20), 119);
     PSpec.P_UpdateSpecials();
-    Test.assertEqual(PSetup.sides_midtexture[s], 100);
+    Test.assertEqual((PSetup.sides_textures[s] >> 20), 100);
 
     // as a switch it stays and the line is used up
     PSwitch.P_ChangeSwitchTexture(330, 0);
-    Test.assertEqual(PSetup.sides_midtexture[s], 119);
+    Test.assertEqual((PSetup.sides_textures[s] >> 20), 119);
     Test.assertEqual(PSetup.lines_special[330], 0);
     return true;
 }

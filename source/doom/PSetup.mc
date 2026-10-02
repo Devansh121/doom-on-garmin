@@ -63,7 +63,8 @@ module PSetup {
     var sectors_tag as Array<Number> = [] as Array<Number>;
     // if == validcount, already checked
     var sectors_validcount as Array<Number> = [] as Array<Number>;
-    // mapblock bounding box for height changes, 4 per sector
+    // mapblock bounding box for height changes, one byte each:
+    // blockbox[k] is (w >> (k << 3)) & 0xff
     var sectors_blockbox as Array<Number> = [] as Array<Number>;
     // origin for any sounds played by the sector
     var sectors_soundorg_x as Array<Number> = [] as Array<Number>;
@@ -117,10 +118,11 @@ module PSetup {
 
     var numsides as Number = 0;
     var sides_textureoffset as Array<Number> = [] as Array<Number>;
-    var sides_rowoffset as Array<Number> = [] as Array<Number>;
-    var sides_toptexture as Array<Number> = [] as Array<Number>;
-    var sides_bottomtexture as Array<Number> = [] as Array<Number>;
-    var sides_midtexture as Array<Number> = [] as Array<Number>;
+    // (rowoffset isn't kept: walls are drawn without texturemid, so
+    // nothing reads it)
+    // toptexture | bottomtexture << 10 | midtexture << 20: top is
+    // w & 0x3ff, bottom (w >> 10) & 0x3ff and mid w >> 20
+    var sides_textures as Array<Number> = [] as Array<Number>;
     var sides_sector as Array<Number> = [] as Array<Number>;
 
     // BLOCKMAP
@@ -398,18 +400,9 @@ module PSetup {
                 sides_textureoffset = a;
                 numsides = a.size();
                 break;
-            case MapLumps.SIDES_ROWOFFSET:
-                sides_rowoffset = a;
-                break;
-            case MapLumps.SIDES_TOPTEXTURE:
+            case MapLumps.SIDES_TEXTURES:
                 // R_TextureNumForName was resolved by tools/wad2ciq.py
-                sides_toptexture = a;
-                break;
-            case MapLumps.SIDES_BOTTOMTEXTURE:
-                sides_bottomtexture = a;
-                break;
-            case MapLumps.SIDES_MIDTEXTURE:
-                sides_midtexture = a;
+                sides_textures = a;
                 break;
             case MapLumps.SIDES_SECTOR:
                 sides_sector = a;
@@ -540,10 +533,7 @@ module PSetup {
         lines_sectors = none;
         lines_validcount = none;
         sides_textureoffset = none;
-        sides_rowoffset = none;
-        sides_toptexture = none;
-        sides_bottomtexture = none;
-        sides_midtexture = none;
+        sides_textures = none;
         sides_sector = none;
         blockmaplump = none;
         blocklinks = none;

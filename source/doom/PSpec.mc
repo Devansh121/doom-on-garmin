@@ -1097,17 +1097,19 @@ module PSpec {
                 btimer[i]--;
                 if (btimer[i] == 0) {
                     var side = PSetup.lines_sidenums[PSwitch.buttonlist_line[i]] & 0xffff;
+                    // top | bottom << 10 | mid << 20 (see PSetup)
+                    var textures = PSetup.sides_textures;
                     switch (PSwitch.buttonlist_where[i]) {
                         case top:
-                            PSetup.sides_toptexture[side] = PSwitch.buttonlist_btexture[i];
+                            textures[side] = (textures[side] & ~0x3ff) | PSwitch.buttonlist_btexture[i];
                             break;
 
                         case middle:
-                            PSetup.sides_midtexture[side] = PSwitch.buttonlist_btexture[i];
+                            textures[side] = (textures[side] & 0xfffff) | (PSwitch.buttonlist_btexture[i] << 20);
                             break;
 
                         case bottom:
-                            PSetup.sides_bottomtexture[side] = PSwitch.buttonlist_btexture[i];
+                            textures[side] = (textures[side] & ~(0x3ff << 10)) | (PSwitch.buttonlist_btexture[i] << 10);
                             break;
                     }
                     SSound.S_StartSound(PSwitch.buttonlist_soundorg[i], SSound.sfx_swtchn);

@@ -1366,13 +1366,13 @@ module PMap {
         nofit = false;
         crushchange = crunch;
 
-        var b = sector * 4;
-        var blockbox = PSetup.sectors_blockbox;
+        // sector->blockbox, one byte per side (see PSetup)
+        var b = PSetup.sectors_blockbox[sector];
         var func = new Lang.Method(PMap, :PIT_ChangeSector);
 
         // re-check heights for all things near the moving sector
-        for (var x = blockbox[b + MBBox.BOXLEFT]; x <= blockbox[b + MBBox.BOXRIGHT]; x++) {
-            for (var y = blockbox[b + MBBox.BOXBOTTOM]; y <= blockbox[b + MBBox.BOXTOP]; y++) {
+        for (var x = (b >> 16) & 0xff; x <= ((b >> 24) & 0xff); x++) {
+            for (var y = (b >> 8) & 0xff; y <= (b & 0xff); y++) {
                 PMapUtl.P_BlockThingsIterator(x, y, func);
             }
         }

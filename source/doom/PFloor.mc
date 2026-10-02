@@ -329,14 +329,15 @@ module PFloor {
                     for (var i = 0; i < PSetup.sectors_linecount[secnum]; i++) {
                         if (PSpec.twoSided(secnum, i) != 0) {
                             var side = PSpec.getSide(secnum, i, 0);
-                            var bottomtexture = PSetup.sides_bottomtexture[side];
+                            // (sides_textures is top | bottom << 10 | mid << 20)
+                            var bottomtexture = (PSetup.sides_textures[side] >> 10) & 0x3ff;
                             if (bottomtexture >= 0) {
                                 if (textureheight[bottomtexture] < minsize) {
                                     minsize = textureheight[bottomtexture];
                                 }
                             }
                             side = PSpec.getSide(secnum, i, 1);
-                            bottomtexture = PSetup.sides_bottomtexture[side];
+                            bottomtexture = (PSetup.sides_textures[side] >> 10) & 0x3ff;
                             if (bottomtexture >= 0) {
                                 if (textureheight[bottomtexture] < minsize) {
                                     minsize = textureheight[bottomtexture];

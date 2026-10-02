@@ -654,7 +654,8 @@ module RSegs {
 
         if (backsector == -1) {
             // single sided line
-            mid_t = texturetranslation[PSetup.sides_midtexture[sidedef]];
+            // (sides_textures is top | bottom << 10 | mid << 20)
+            mid_t = texturetranslation[PSetup.sides_textures[sidedef] >> 20];
             // a single sided line is terminal, so it must mark ends
             mfloor = true;
             mceil = true;
@@ -740,15 +741,15 @@ module RSegs {
 
             if (whigh < wtop) {
                 // top texture
-                top_t = texturetranslation[PSetup.sides_toptexture[sidedef]];
+                top_t = texturetranslation[PSetup.sides_textures[sidedef] & 0x3ff];
             }
             if (wlow > wbottom) {
                 // bottom texture
-                bottom_t = texturetranslation[PSetup.sides_bottomtexture[sidedef]];
+                bottom_t = texturetranslation[(PSetup.sides_textures[sidedef] >> 10) & 0x3ff];
             }
 
             // allocate space for masked texture tables
-            if (PSetup.sides_midtexture[sidedef] != 0) {
+            if ((PSetup.sides_textures[sidedef] >> 20) != 0) {
                 // masked midtexture
                 masked = true;
                 drawsegs_maskedtexturecol[ds] = lastopening - start;

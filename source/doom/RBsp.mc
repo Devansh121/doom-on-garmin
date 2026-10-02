@@ -267,7 +267,8 @@ module RBsp {
         var floorpic = PSetup.sectors_floorpic;
         var ceilingpic = PSetup.sectors_ceilingpic;
         var lightlevel = PSetup.sectors_lightlevel;
-        var midtexture = PSetup.sides_midtexture;
+        // top | bottom << 10 | mid << 20
+        var sidetextures = PSetup.sides_textures;
         var viewx = RMain.viewx;
         var viewy = RMain.viewy;
         var viewz = RMain.viewz;
@@ -433,7 +434,7 @@ module RBsp {
                 } else if (!(ceilingpic[back] == ceilingpic[front]
                              && floorpic[back] == floorpic[front]
                              && lightlevel[back] == lightlevel[front]
-                             && midtexture[segs_sidedeflinedef[line] & 0xffff] == 0)) {
+                             && (sidetextures[segs_sidedeflinedef[line] & 0xffff] >> 20) == 0)) {
                     // not an empty trigger line: clippass
                     queued = true;
                 }

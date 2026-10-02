@@ -150,9 +150,11 @@ module PSwitch {
         }
 
         var side = PSetup.lines_sidenums[line] & 0xffff;
-        var texTop = PSetup.sides_toptexture[side];
-        var texMid = PSetup.sides_midtexture[side];
-        var texBot = PSetup.sides_bottomtexture[side];
+        // top | bottom << 10 | mid << 20 (see PSetup)
+        var texTop = PSetup.sides_textures[side];
+        var texMid = texTop >> 20;
+        var texBot = (texTop >> 10) & 0x3ff;
+        texTop = texTop & 0x3ff;
 
         var sound = SSound.sfx_swtchn;
 
@@ -166,7 +168,7 @@ module PSwitch {
             // from the first button's origin, whichever line that was.
             if (switchlist[i] == texTop) {
                 SSound.S_StartSound(buttonlist_soundorg[0], sound);
-                PSetup.sides_toptexture[side] = switchlist[i ^ 1];
+                PSetup.sides_textures[side] = (PSetup.sides_textures[side] & ~0x3ff) | switchlist[i ^ 1];
 
                 if (useAgain != 0) {
                     P_StartButton(line, PSpec.top, switchlist[i], PSpec.BUTTONTIME);
@@ -176,7 +178,7 @@ module PSwitch {
             } else {
                 if (switchlist[i] == texMid) {
                     SSound.S_StartSound(buttonlist_soundorg[0], sound);
-                    PSetup.sides_midtexture[side] = switchlist[i ^ 1];
+                    PSetup.sides_textures[side] = (PSetup.sides_textures[side] & 0xfffff) | (switchlist[i ^ 1] << 20);
 
                     if (useAgain != 0) {
                         P_StartButton(line, PSpec.middle, switchlist[i], PSpec.BUTTONTIME);
@@ -186,7 +188,7 @@ module PSwitch {
                 } else {
                     if (switchlist[i] == texBot) {
                         SSound.S_StartSound(buttonlist_soundorg[0], sound);
-                        PSetup.sides_bottomtexture[side] = switchlist[i ^ 1];
+                        PSetup.sides_textures[side] = (PSetup.sides_textures[side] & ~(0x3ff << 10)) | (switchlist[i ^ 1] << 10);
 
                         if (useAgain != 0) {
                             P_StartButton(line, PSpec.bottom, switchlist[i], PSpec.BUTTONTIME);
