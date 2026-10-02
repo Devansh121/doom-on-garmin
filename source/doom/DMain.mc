@@ -66,6 +66,7 @@ module DMain {
         if (s == 0) {
             System.println("Tables_Init: Init trig tables.");
             Tables.Tables_Init();
+            D_CalibrateSlice();
             startupstep++;
             return;
         }
@@ -219,7 +220,35 @@ module DMain {
     // D_Tick: called from the view's timer. Returns true when a finished
     // frame is ready to show.
     //
+    //
+    // Callback time slices. The watchdog counts instructions, so how long
+    // a callback may run depends on how fast the device executes them:
+    // about 1 us per simple loop step in the simulator, about 12 us on the
+    // Forerunner 965. Startup times a fixed loop and gives each callback
+    // SLICESTEPS steps' worth of time (at least MINSLICEMS); the watchdog was measured to trip
+    // somewhere past 8000-16000. Work budgets alone weren't enough: one
+    // P_CheckSight or a busy wall costs many times an average unit.
+    //
+    const SLICESTEPS = 5000;
+    const MINSLICEMS = 12;
+    var slicems as Number = 30;
+
+    function D_CalibrateSlice() as Void {
+        var t0 = System.getTimer();
+        var s = 0;
+        for (var i = 0; i < 6000; i++) {
+            s += i;
+        }
+        var ms = System.getTimer() - t0;
+        slicems = ms * SLICESTEPS / 6000;
+        if (slicems < MINSLICEMS) {
+            slicems = MINSLICEMS;
+        }
+        System.println("D_CalibrateSlice: " + ms + " ms for 6000 steps, slice " + slicems + " ms");
+    }
+
     function D_Tick() as Boolean {
+        RSegs.deadline = System.getTimer() + slicems;
         if (!started) {
             D_DoomMainStep();
             if (started) {

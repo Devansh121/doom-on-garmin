@@ -9,6 +9,7 @@
 // (evaluated after the front side is done, as in C) says it's visible.
 
 import Toybox.Lang;
+import Toybox.System;
 
 module RBsp {
 
@@ -463,6 +464,7 @@ module RBsp {
     function R_RenderBSPNodeStep(budget as Number) as Boolean {
         var stack = bspstack;
         var sp = bspsp;
+        var deadline = RSegs.deadline;
 
         var children = PSetup.nodes_children;
         var nodes_x = PSetup.nodes_x;
@@ -492,7 +494,7 @@ module RBsp {
         var angle2 = 0;
 
         while (sp > 0) {
-            if (RSegs.work >= budget) {
+            if (RSegs.work >= budget || System.getTimer() >= deadline) {
                 bspsp = sp;
                 return false;
             }

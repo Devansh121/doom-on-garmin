@@ -26,6 +26,7 @@
 
 import Toybox.Graphics;
 import Toybox.Lang;
+import Toybox.System;
 import Toybox.WatchUi;
 
 module RThings {
@@ -905,7 +906,7 @@ module RThings {
                 sortstarted = true;
             }
             while (!R_SortVisSpritesStep()) {
-                if (RSegs.work >= budget) {
+                if (RSegs.work >= budget || System.getTimer() >= RSegs.deadline) {
                     return false;
                 }
             }
@@ -916,7 +917,7 @@ module RThings {
         if (maskedphase == MP_SPRITES) {
             // draw all vissprites back to front
             while (maskedspr != VSPRSORTEDHEAD) {
-                if (RSegs.work >= budget) {
+                if (RSegs.work >= budget || System.getTimer() >= RSegs.deadline) {
                     return false;
                 }
                 R_DrawSprite(maskedspr);
@@ -930,7 +931,7 @@ module RThings {
         }
 
         if (maskedphase == MP_PSPRITES) {
-            if (RSegs.work >= budget) {
+            if (RSegs.work >= budget || System.getTimer() >= RSegs.deadline) {
                 return false;
             }
             // draw the psprites on top of everything

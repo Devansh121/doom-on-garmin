@@ -13,6 +13,7 @@
 // the TF_* numbers below and P_RunThinkers dispatches on it.
 
 import Toybox.Lang;
+import Toybox.System;
 
 module PTick {
 
@@ -144,8 +145,9 @@ module PTick {
         var t = currentthinker;
         var f;
 
+        var deadline = RSegs.deadline;
         while (t != 0) {
-            if (budget <= 0) {
+            if (budget <= 0 || System.getTimer() >= deadline) {
                 currentthinker = t;
                 return false;
             }

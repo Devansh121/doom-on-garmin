@@ -144,6 +144,11 @@ module RSegs {
     // hand control back before the watchdog trips.
     var work as Number = 0;
 
+    // System.getTimer() time by which the current callback should hand
+    // control back, set by DMain from a speed calibration. The step loops
+    // check it as well as their work budgets. MAXINT (tests) means never.
+    var deadline as Number = 0x7fffffff;
+
     // When set, R_StoreWallRange appends [curline, start, stop] and
     // R_RenderSegLoop appends [kind, x, yl, yh, a, b] to drawtrace, for
     // tests. kind 0 is a wall column (a = texture, b = colormap level),
