@@ -75,7 +75,14 @@ module DMain {
                 Info.Info_Init();
                 System.println("P_Init: Init Playloop state.");
                 PSetup.P_Init();
-                GGame.G_InitNew(DoomStat.gameskill, 1, 1);
+                if (DEMO != 0) {
+                    // D_DoAdvanceDemo's G_DeferedPlayDemo, and the
+                    // G_DoPlayDemo the next G_Ticker would do
+                    GGame.G_DeferedPlayDemo(DEMO);
+                    GGame.G_DoPlayDemo();
+                } else {
+                    GGame.G_InitNew(DoomStat.gameskill, 1, 1);
+                }
                 startupstep++;
             }
             return;
@@ -89,6 +96,35 @@ module DMain {
             }
             return;
         }
+    }
+
+    //
+    // DEMO LOOP
+    //
+    // Which demo to play instead of starting E1M1: 0 for none (the
+    // normal game), 1..3 for DEMO1..3. build.sh sets it from DOOM_DEMO
+    // in generated/source/DemoConfig.mc.
+    const DEMO = DemoConfig.DEMO;
+
+    var advancedemo as Boolean = false;
+
+    //
+    // D_AdvanceDemo
+    // Called after each demo or intro demosequence finishes
+    //
+    function D_AdvanceDemo() as Void {
+        advancedemo = true;
+    }
+
+    //
+    // This cycles through the demo sequences.
+    // There are no title, credit or help pages on the watch, so this
+    // goes straight on to the next demo: DEMO1, DEMO2, DEMO3, DEMO1...
+    //
+    function D_DoAdvanceDemo() as Void {
+        advancedemo = false;
+        GGame.G_DeferedPlayDemo(GGame.defdemoname % 3 + 1);
+        GGame.G_DoPlayDemo();
     }
 
     //
@@ -128,8 +164,13 @@ module DMain {
     function D_RunTics(budget as Number) as Boolean {
         while (ticsleft > 0) {
             if (!ticrunning) {
-                // G_Ticker: build the player's command and start the tic
+                // G_Ticker: build the player's command and start the tic.
+                // A demo's ticcmd replaces it, like G_Ticker does with
+                // netcmds; on the demo's last tic it doesn't.
                 GGame.G_BuildTiccmd(DPlayer.consoleplayer);
+                if (GGame.demoplayback) {
+                    GGame.G_ReadDemoTiccmd(DPlayer.consoleplayer);
+                }
                 PTick.P_TickerStart();
                 ticrunning = true;
             }
@@ -143,6 +184,15 @@ module DMain {
             HuStuff.HU_Ticker();
             ticsleft--;
             DoomStat.gametic++;
+
+            // D_PageTicker / D_DoAdvanceDemo: the demo is over, play
+            // the next one
+            if (advancedemo) {
+                D_DoAdvanceDemo();
+                startupstep = 2;
+                started = false;
+                return false;
+            }
 
             // G_DoReborn: single player just reloads the level
             if (DPlayer.players_playerstate[DPlayer.consoleplayer] == DPlayer.PST_REBORN) {
