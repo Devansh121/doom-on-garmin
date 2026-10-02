@@ -53,3 +53,24 @@ function testSetupLevelE1M1(logger as Test.Logger) as Boolean {
     Test.assertEqual(start[2], 90);
     return true;
 }
+
+// Play changes the loaded arrays in place (heights, specials, textures),
+// so loading a level again, as G_DoReborn does, must start from fresh
+// copies of the resources, not from what the last visit left behind.
+(:test)
+function testSetupLevelReloadsFresh(logger as Test.Logger) as Boolean {
+    loadE1M1();
+    var height = PSetup.sectors_floorheight[0];
+    var special = PSetup.lines_special[330];
+    var textures = PSetup.sides_textures[0];
+    PSetup.sectors_floorheight[0] = height + MFixed.FRACUNIT;
+    PSetup.lines_special[330] = 0;
+    PSetup.sides_textures[0] = 0;
+
+    loadE1M1();
+    Test.assertEqual(PSetup.sectors_floorheight[0], height);
+    Test.assertEqual(PSetup.lines_special[330], special);
+    Test.assertEqual(PSetup.sides_textures[0], textures);
+    Test.assert(special != 0);
+    return true;
+}
