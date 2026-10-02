@@ -21,6 +21,7 @@ openssl genrsa -out key.pem 4096 && openssl pkcs8 -topk8 -inform PEM -outform DE
 DOOM_WAD=path/to/doom1.wad ./build.sh           # bin/DoomIQ.prg
 DOOM_WAD=path/to/doom1.wad ./build.sh run       # run in the simulator
 DOOM_WAD=path/to/doom1.wad ./build.sh install   # copy to a watch plugged in over USB
+DOOM_DEMO=1 DOOM_WAD=path/to/doom1.wad ./build.sh run  # play DEMO1 (1..3), then the others
 ```
 
 `TEXTURED=1 ./build.sh` builds with textured walls (each texture squeezed to 16 vertical bands, lit through COLORMAP) instead of flat colors. It's off by default because the watch can't afford the per-column texture math.
