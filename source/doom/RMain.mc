@@ -122,6 +122,19 @@ module RMain {
     // on the watch, a column costs about 1.2 ms at 160 columns.
     var detaillevel as Number = 2;
 
+    // Textured walls (plan item #24): off by default, since the watch
+    // can't afford the per-column texture math. `TEXTURED=1 ./build.sh`
+    // builds with it on (the jungle picks one of these two).
+    (:texturedwalls)
+    function R_TexturedWalls() as Boolean {
+        return true;
+    }
+    (:flatwalls)
+    function R_TexturedWalls() as Boolean {
+        return false;
+    }
+    var texturedwalls as Boolean = false;
+
     // the player number whose view is drawn
     var viewplayer as Number = 0;
 
@@ -562,9 +575,14 @@ module RMain {
         if (s == 9) {
             R_InitTextureMapping_X();
             R_InitTextureMapping_Fence(0, Tables.FINEANGLES / 2);
-            // Nothing else reads finetangent until textured walls need
+            // Nothing else reads finetangent unless textured walls need
             // texturecolumn, so give its 20 KB back.
-            Tables.finetangent = [] as Array<Number>;
+            texturedwalls = R_TexturedWalls();
+            if (texturedwalls) {
+                RData.R_InitTexturedWalls();
+            } else {
+                Tables.finetangent = [] as Array<Number>;
+            }
             return false;
         }
         if (s == 10) {

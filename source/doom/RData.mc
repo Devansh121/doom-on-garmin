@@ -44,6 +44,21 @@ module RData {
     //  that will be used by all views
     // Must be called after W_Init.
     //
+    // Textured walls: see wad2ciq.py's texture_bands. Byte k of a packed
+    // array is (a[k >> 2] >> ((k & 3) * 8)) & 0xff.
+    const TEXBANDS = 16;
+    var texturewidthmask as Array<Number> = [] as Array<Number>;
+    var texturebands as Array<Number> = [] as Array<Number>;
+    var colormaps as Array<Number> = [] as Array<Number>;
+    var palette as Array<Number> = [] as Array<Number>;
+
+    function R_InitTexturedWalls() as Void {
+        texturewidthmask = WatchUi.loadResource(Rez.JsonData.texturewidthmask) as Array<Number>;
+        texturebands = WatchUi.loadResource(Rez.JsonData.texturebands) as Array<Number>;
+        colormaps = WatchUi.loadResource(Rez.JsonData.colormaps) as Array<Number>;
+        palette = WatchUi.loadResource(Rez.JsonData.palette) as Array<Number>;
+    }
+
     function R_InitData() as Void {
         texturecolors = WatchUi.loadResource(Rez.JsonData.texturecolors) as Array<Number>;
         numtextures = texturecolors.size() / RMain.NUMCOLORMAPS;

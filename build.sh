@@ -29,13 +29,20 @@ if [ ! -f "$GEN/sprites.xml" ] || [ "$WAD" -nt "$GEN/sprites.xml" ] || [ tools/s
     python3 tools/sprites2ciq.py "$WAD"
 fi
 
+# TEXTURED=1 builds textured walls (plan item #24) instead of flat ones.
+JUNGLE=monkey.jungle
+if [ "${TEXTURED:-0}" = 1 ]; then
+    sed 's/^base.excludeAnnotations = texturedwalls$/base.excludeAnnotations = flatwalls/' monkey.jungle > .textured.jungle
+    JUNGLE=".textured.jungle"
+fi
+
 mkdir -p bin
 if [ "${1:-}" = test ]; then
     "$SDK/bin/monkeyc" -d "$DEVICE" -f monkey.jungle -o bin/DoomIQ-test.prg -y "$KEY" -t
     pgrep -f "$SDK/bin/simulator" >/dev/null || { "$SDK/bin/connectiq" & sleep 5; }
     exec "$SDK/bin/monkeydo" bin/DoomIQ-test.prg "$DEVICE" -t
 fi
-"$SDK/bin/monkeyc" -d "$DEVICE" -f monkey.jungle -o bin/DoomIQ.prg -y "$KEY" -w
+"$SDK/bin/monkeyc" -d "$DEVICE" -f "$JUNGLE" -o bin/DoomIQ.prg -y "$KEY" -w
 
 case "${1:-}" in
     run)

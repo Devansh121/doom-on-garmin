@@ -142,6 +142,46 @@ def lit_colors(texels, playpal, colormap):
     return out
 
 
+TEXBANDS = 16
+
+
+def texture_bands(wad, data, ofs, pnames, playpal):
+    """For the optional textured walls: a texture squeezed to TEXBANDS
+    vertical bands, each the palette index nearest its average color.
+    Returns (widthmask, bands) with widthmask as R_InitTextures makes
+    texturewidthmask."""
+    width, height = struct.unpack_from("<hh", data, ofs + 12)
+    texels = composite_texture(wad, data, ofs, pnames)
+    pal = [tuple(playpal[i * 3:i * 3 + 3]) for i in range(256)]
+    bands = []
+    for b in range(TEXBANDS):
+        x0 = b * width // TEXBANDS
+        x1 = max((b + 1) * width // TEXBANDS, x0 + 1)
+        cols = [texels[y * width + x] for y in range(height) for x in range(x0, min(x1, width))]
+        cols = [c for c in cols if c is not None]
+        if not cols:
+            bands.append(0)
+            continue
+        r = sum(pal[c][0] for c in cols) / len(cols)
+        g = sum(pal[c][1] for c in cols) / len(cols)
+        bl = sum(pal[c][2] for c in cols) / len(cols)
+        bands.append(min(range(256), key=lambda i: (pal[i][0] - r) ** 2 + (pal[i][1] - g) ** 2 + (pal[i][2] - bl) ** 2))
+    j = 1
+    while j * 2 <= width:
+        j <<= 1
+    return j - 1, bands
+
+
+def pack_bytes(values):
+    """Four bytes per number, little end first, as signed 32-bit."""
+    values = list(values) + [0] * ((-len(values)) % 4)
+    out = []
+    for k in range(0, len(values), 4):
+        w = values[k] | values[k + 1] << 8 | values[k + 2] << 16 | values[k + 3] << 24
+        out.append(w - (1 << 32) if w >= (1 << 31) else w)
+    return out
+
+
 def convert_colors(wad, usegamma):
     """Flat stand-ins for R_InitTextures / R_InitFlats / R_InitColormaps:
     the renderer draws every texture and flat as its average color, so
@@ -155,6 +195,8 @@ def convert_colors(wad, usegamma):
     pnames = [name8(pdata[4 + i * 8:12 + i * 8]) for i in range(npatches)]
 
     tex = []
+    widthmasks = []
+    bands = []
     for lumpname in ("TEXTURE1", "TEXTURE2"):
         i = wad.num_for_name(lumpname)
         if i < 0:
@@ -164,6 +206,9 @@ def convert_colors(wad, usegamma):
         for t in range(count):
             (ofs,) = struct.unpack_from("<i", data, 4 + t * 4)
             tex += lit_colors(composite_texture(wad, data, ofs, pnames), playpal, colormap)
+            mask, b = texture_bands(wad, data, ofs, pnames, playpal)
+            widthmasks.append(mask)
+            bands += b
 
     firstflat = wad.num_for_name("F_START") + 1
     lastflat = wad.num_for_name("F_END") - 1
@@ -193,6 +238,13 @@ def convert_colors(wad, usegamma):
         "textureheights": heights,
         "flatnames": flatnames,
         "texturecolors": tex,
+        # Textured walls (optional): per texture its width mask and
+        # TEXBANDS palette indexes packed four per number, plus COLORMAP
+        # packed the same way and the palette as 0xRRGGBB.
+        "texturewidthmask": widthmasks,
+        "texturebands": pack_bytes(bands),
+        "colormaps": pack_bytes(colormap[:34 * 256]),
+        "palette": [playpal[i * 3] << 16 | playpal[i * 3 + 1] << 8 | playpal[i * 3 + 2] for i in range(256)],
         "flatcolors": flats,
         # G_DoLoadLevel: SKYFLATNAME is F_SKY1, and episode 1 uses SKY1.
         "skyflatnum": [wad.num_for_name("F_SKY1") - firstflat],

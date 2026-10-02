@@ -1,3 +1,6 @@
 project.manifest = manifest.xml
 base.sourcePath = source;test;generated/source
 base.resourcePath = resources;generated/resources
+
+# flat walls by default; build.sh adds a TEXTURED=1 variant
+base.excludeAnnotations = texturedwalls

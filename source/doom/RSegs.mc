@@ -4,8 +4,10 @@
 //
 // Differences from the C code, all because walls, floors and ceilings
 // are drawn as flat colors (see RData):
-//  - no texture columns or texturemid: only which texture and which
-//    light level a column uses matter.
+//  - no texturemid, and texture columns only with textured walls on
+//    (TEXTURED=1 ./build.sh): then a column is the texture's band at
+//    texturecolumn, lit through COLORMAP. Otherwise only which texture
+//    and which light level a column uses matter.
 //  - floor and ceiling spans are filled with the plane's color right
 //    where R_RenderSegLoop marks them, instead of being stored in the
 //    visplane for R_DrawPlanes. The light for a span is what R_MapPlane
@@ -36,6 +38,9 @@ module RSegs {
     var midtexture as Number = 0;
 
     var rw_normalangle as Number = 0;
+    // only used with textured walls
+    var rw_offset as Number = 0;
+    var rw_centerangle as Number = 0;
     // angle to line origin
     var rw_angle1 as Number = 0;
 
@@ -211,6 +216,19 @@ module RSegs {
         var bottom_t = bottomtexture;
         var textured = segtextured;
         var wl = walllights;
+        // textured walls: what R_GetColumn needs, see RData
+        var texw = RMain.texturedwalls && textured;
+        var centerangle = rw_centerangle;
+        var offset = rw_offset;
+        var distance = rw_distance;
+        var finetangent = Tables.finetangent;
+        var xtoviewangle = RMain.xtoviewangle;
+        var widthmask = RData.texturewidthmask;
+        var bands = RData.texturebands;
+        var colormaps = RData.colormaps;
+        var palette = RData.palette;
+        var tc = 0;
+        var k;
         var ceilheighth = ceilheight >> 16;
         var ceilheightl = ceilheight & 0xffff;
         var floorheighth = floorheight >> 16;
@@ -325,6 +343,17 @@ module RSegs {
 
                 // dc_colormap = wl[index];
                 level = fixedcolormap >= 0 ? fixedcolormap : scalelight[wl + index];
+
+                if (texw) {
+                    // calculate texture offset
+                    var t = finetangent[((centerangle + xtoviewangle[x]) >> Tables.ANGLETOFINESHIFT) & 0xfff];
+                    // FixedMul (finetangent[angle], rw_distance), in halves
+                    var th = t >> 16;
+                    var tl = t & 0xffff;
+                    var dh = distance >> 16;
+                    var dl = distance & 0xffff;
+                    tc = (offset - (((th * dh) << 16) + th * dl + tl * dh + (((tl * dl) >> 16) & 0xffff))) >> MFixed.FRACBITS;
+                }
             }
 
             // draw the wall tiers
@@ -332,7 +361,15 @@ module RSegs {
                 // single sided line
                 // (colfunc draws nothing when dc_yh < dc_yl)
                 if (yl <= yh) {
-                    color = texturecolors[midbase + level];
+                    if (texw) {
+                        // R_GetColumn: the texture's band at texturecolumn, lit
+                        // through COLORMAP like dc_colormap does
+                        k = mid_t * RData.TEXBANDS + ((tc & widthmask[mid_t]) * RData.TEXBANDS) / (widthmask[mid_t] + 1);
+                        k = level * 256 + ((bands[k >> 2] >> ((k & 3) * 8)) & 0xff);
+                        color = palette[(colormaps[k >> 2] >> ((k & 3) * 8)) & 0xff];
+                    } else {
+                        color = texturecolors[midbase + level];
+                    }
                     if (color != lastcolor) {
                         dc.setColor(color, color);
                         lastcolor = color;
@@ -358,7 +395,15 @@ module RSegs {
                     }
 
                     if (mid >= yl) {
-                        color = texturecolors[topbase + level];
+                        if (texw) {
+                            // R_GetColumn: the texture's band at texturecolumn, lit
+                            // through COLORMAP like dc_colormap does
+                            k = top_t * RData.TEXBANDS + ((tc & widthmask[top_t]) * RData.TEXBANDS) / (widthmask[top_t] + 1);
+                            k = level * 256 + ((bands[k >> 2] >> ((k & 3) * 8)) & 0xff);
+                            color = palette[(colormaps[k >> 2] >> ((k & 3) * 8)) & 0xff];
+                        } else {
+                            color = texturecolors[topbase + level];
+                        }
                         if (color != lastcolor) {
                             dc.setColor(color, color);
                             lastcolor = color;
@@ -391,7 +436,15 @@ module RSegs {
                     }
 
                     if (mid <= yh) {
-                        color = texturecolors[bottombase + level];
+                        if (texw) {
+                            // R_GetColumn: the texture's band at texturecolumn, lit
+                            // through COLORMAP like dc_colormap does
+                            k = bottom_t * RData.TEXBANDS + ((tc & widthmask[bottom_t]) * RData.TEXBANDS) / (widthmask[bottom_t] + 1);
+                            k = level * 256 + ((bands[k >> 2] >> ((k & 3) * 8)) & 0xff);
+                            color = palette[(colormaps[k >> 2] >> ((k & 3) * 8)) & 0xff];
+                        } else {
+                            color = texturecolors[bottombase + level];
+                        }
                         if (color != lastcolor) {
                             dc.setColor(color, color);
                             lastcolor = color;
@@ -688,7 +741,22 @@ module RSegs {
         var textured = mid_t != 0 || top_t != 0 || bottom_t != 0 || masked;
 
         if (textured) {
-            // (rw_offset and rw_centerangle only matter for texturing)
+            if (RMain.texturedwalls) {
+                var oa = normalangle - rw_angle1;
+                if ((oa ^ DoomType.MININT) > (Tables.ANG180 ^ DoomType.MININT)) {
+                    oa = -oa;
+                }
+                if ((oa ^ DoomType.MININT) > (Tables.ANG90 ^ DoomType.MININT)) {
+                    oa = Tables.ANG90;
+                }
+                sineval = Tables.finesine[(oa >> Tables.ANGLETOFINESHIFT) & Tables.FINEMASK];
+                var offset = MFixed.FixedMul(hyp, sineval);
+                if (((normalangle - rw_angle1) ^ DoomType.MININT) < (Tables.ANG180 ^ DoomType.MININT)) {
+                    offset = -offset;
+                }
+                rw_offset = offset + PSetup.sides_textureoffset[sidedef] + PSetup.segs_offset[curline];
+                rw_centerangle = Tables.ANG90 + viewangle - normalangle;
+            }
 
             // calculate light table
             //  use different light tables
