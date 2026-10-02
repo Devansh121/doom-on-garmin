@@ -292,18 +292,23 @@ module PMobj {
     const FRICTION = 0xe800;
 
     function P_XYMovement(mo as Number) as Void {
+        // (momentum arrays in locals: module variable reads are slow on
+        // the watch. Only these two, since this frame sits under P_TryMove
+        // and the VM stack is small.)
+        var mmomx = mobjs_momx;
+        var mmomy = mobjs_momy;
         var ptryx;
         var ptryy;
         var player;
         var xmove;
         var ymove;
 
-        if (mobjs_momx[mo] == 0 && mobjs_momy[mo] == 0) {
+        if (mmomx[mo] == 0 && mmomy[mo] == 0) {
             if ((mobjs_flags[mo] & MF_SKULLFLY) != 0) {
                 // the skull slammed into something
                 mobjs_flags[mo] &= ~MF_SKULLFLY;
-                mobjs_momx[mo] = 0;
-                mobjs_momy[mo] = 0;
+                mmomx[mo] = 0;
+                mmomy[mo] = 0;
                 mobjs_momz[mo] = 0;
 
                 P_SetMobjState(mo, info(mo, Info.MI_SPAWNSTATE));
@@ -313,20 +318,20 @@ module PMobj {
 
         player = mobjs_player[mo];
 
-        if (mobjs_momx[mo] > PLocal.MAXMOVE) {
-            mobjs_momx[mo] = PLocal.MAXMOVE;
-        } else if (mobjs_momx[mo] < -PLocal.MAXMOVE) {
-            mobjs_momx[mo] = -PLocal.MAXMOVE;
+        if (mmomx[mo] > PLocal.MAXMOVE) {
+            mmomx[mo] = PLocal.MAXMOVE;
+        } else if (mmomx[mo] < -PLocal.MAXMOVE) {
+            mmomx[mo] = -PLocal.MAXMOVE;
         }
 
-        if (mobjs_momy[mo] > PLocal.MAXMOVE) {
-            mobjs_momy[mo] = PLocal.MAXMOVE;
-        } else if (mobjs_momy[mo] < -PLocal.MAXMOVE) {
-            mobjs_momy[mo] = -PLocal.MAXMOVE;
+        if (mmomy[mo] > PLocal.MAXMOVE) {
+            mmomy[mo] = PLocal.MAXMOVE;
+        } else if (mmomy[mo] < -PLocal.MAXMOVE) {
+            mmomy[mo] = -PLocal.MAXMOVE;
         }
 
-        xmove = mobjs_momx[mo];
-        ymove = mobjs_momy[mo];
+        xmove = mmomx[mo];
+        ymove = mmomy[mo];
 
         do {
             if (xmove > PLocal.MAXMOVE / 2 || ymove > PLocal.MAXMOVE / 2) {
@@ -360,8 +365,8 @@ module PMobj {
                     }
                     P_ExplodeMissile(mo);
                 } else {
-                    mobjs_momx[mo] = 0;
-                    mobjs_momy[mo] = 0;
+                    mmomx[mo] = 0;
+                    mmomy[mo] = 0;
                 }
             }
         } while (xmove != 0 || ymove != 0);
@@ -369,8 +374,8 @@ module PMobj {
         // slow down
         if (player != -1 && (DPlayer.players_cheats[player] & DPlayer.CF_NOMOMENTUM) != 0) {
             // debug option for no sliding at all
-            mobjs_momx[mo] = 0;
-            mobjs_momy[mo] = 0;
+            mmomx[mo] = 0;
+            mmomy[mo] = 0;
             return;
         }
 
@@ -385,20 +390,20 @@ module PMobj {
         if ((mobjs_flags[mo] & MF_CORPSE) != 0) {
             // do not stop sliding
             //  if halfway off a step with some momentum
-            if (mobjs_momx[mo] > MFixed.FRACUNIT / 4
-                || mobjs_momx[mo] < -MFixed.FRACUNIT / 4
-                || mobjs_momy[mo] > MFixed.FRACUNIT / 4
-                || mobjs_momy[mo] < -MFixed.FRACUNIT / 4) {
+            if (mmomx[mo] > MFixed.FRACUNIT / 4
+                || mmomx[mo] < -MFixed.FRACUNIT / 4
+                || mmomy[mo] > MFixed.FRACUNIT / 4
+                || mmomy[mo] < -MFixed.FRACUNIT / 4) {
                 if (mobjs_floorz[mo] != PSetup.sectors_floorheight[PSetup.subsectors_sector[mobjs_subsector[mo]]]) {
                     return;
                 }
             }
         }
 
-        if (mobjs_momx[mo] > -STOPSPEED
-            && mobjs_momx[mo] < STOPSPEED
-            && mobjs_momy[mo] > -STOPSPEED
-            && mobjs_momy[mo] < STOPSPEED
+        if (mmomx[mo] > -STOPSPEED
+            && mmomx[mo] < STOPSPEED
+            && mmomy[mo] > -STOPSPEED
+            && mmomy[mo] < STOPSPEED
             && (player == -1
                 || (DPlayer.players_cmd_forwardmove[player] == 0
                     && DPlayer.players_cmd_sidemove[player] == 0))) {
@@ -408,11 +413,13 @@ module PMobj {
                 P_SetMobjState(DPlayer.players_mo[player], Info.S_PLAY);
             }
 
-            mobjs_momx[mo] = 0;
-            mobjs_momy[mo] = 0;
+            mmomx[mo] = 0;
+            mmomy[mo] = 0;
         } else {
-            mobjs_momx[mo] = MFixed.FixedMul(mobjs_momx[mo], FRICTION);
-            mobjs_momy[mo] = MFixed.FixedMul(mobjs_momy[mo], FRICTION);
+            // FixedMul(mom, FRICTION), inlined: MFixed.FixedMul's split
+            // with b = FRICTION, whose high half is 0
+            mmomx[mo] = (mmomx[mo] >> 16) * FRICTION + ((((mmomx[mo] & 0xffff) * FRICTION) >> 16) & 0xffff);
+            mmomy[mo] = (mmomy[mo] >> 16) * FRICTION + ((((mmomy[mo] & 0xffff) * FRICTION) >> 16) & 0xffff);
         }
     }
 
