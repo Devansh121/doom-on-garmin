@@ -38,7 +38,7 @@ ST_SIZE = 7
 MF_AMBUSH, MF_SPAWNCEILING = 32, 256
 mobjinfo = json.load(open(os.path.join(info, "mobjinfo.json")))
 states = json.load(open(os.path.join(info, "states.json")))
-things = json.load(open(os.path.join(here, "..", "generated", "resources", "e1m1_things.json")))
+things = json.load(open(os.path.join(here, "..", "generated", "lumps", "e1m1_things.json")))
 skillbit = 1 << (2 - 1)  # sk_medium
 spawned = []
 for i in range(0, len(things), 5):

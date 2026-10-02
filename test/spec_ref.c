@@ -11,7 +11,7 @@
 // Map data is loaded the way P_LoadSectors, P_LoadSideDefs,
 // P_LoadLineDefs and P_GroupLines do it. From the repo root:
 //
-//   python3 -c "import json;[print(len(d),*d) for n in ['e1m1_sectors','e1m1_sidedefs','e1m1_linedefs','textureheights','texturenames','flatnames'] for d in [json.load(open(f'generated/resources/{n}.json'))]]" > spec.txt
+//   python3 -c "import json;[print(len(d),*d) for n in ['lumps/e1m1_sectors','lumps/e1m1_sidedefs','lumps/e1m1_linedefs','resources/textureheights','resources/texturenames','resources/flatnames'] for d in [json.load(open(f'generated/{n}.json'))]]" > spec.txt
 //   L=~/src/DOOM/linuxdoom-1.10
 //   gcc -w -I $L test/spec_ref.c $L/p_spec.c $L/p_doors.c $L/p_plats.c $L/p_floor.c \
 //       $L/p_ceilng.c $L/p_lights.c $L/p_switch.c $L/p_tick.c $L/m_random.c -o spec_ref

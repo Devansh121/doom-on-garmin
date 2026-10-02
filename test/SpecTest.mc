@@ -25,11 +25,11 @@ function loadSpecE1M1() as Void {
     for (var i = 0; i < PSetup.blocklinks.size(); i++) {
         PSetup.blocklinks[i] = -1;
     }
-    var ms = PSetup.W_LumpData(DoomData.ML_SECTORS);
+    var special = PSetup.W_LevelData(MapLumps.SECTORS_SPECIAL);
     for (var i = 0; i < PSetup.numsectors; i++) {
         PSetup.sectors_thinglist[i] = -1;
         PSetup.sectors_specialdata[i] = -1;
-        PSetup.sectors_special[i] = ms[i * 7 + 5];
+        PSetup.sectors_special[i] = special[i];
     }
     for (var i = 0; i < PSpec.MAXPLATS; i++) {
         PPlats.activeplats[i] = -1;

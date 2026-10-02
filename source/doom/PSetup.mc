@@ -6,10 +6,16 @@
 // Structs from r_defs.h are stored one array per field (vertexes_x[i] is
 // vertexes[i].x) and pointers are indexes into those arrays, -1 for NULL.
 //
-// The watchdog won't let a single callback walk a whole lump, so
-// P_SetupLevel only resets state and P_SetupLevelStep does the loading a
-// slice at a time. The P_Load* functions take the range of records to
-// process and do the same work per record as the C versions.
+// What P_LoadVertexes .. P_LoadSegs and P_GroupLines work out from the
+// lumps never changes, so tools/wad2ciq.py does it at build time (the same
+// steps and arithmetic) and writes each of the arrays below as its own
+// jsonData resource. Loading a level is then one loadResource per array,
+// with no raw lump and converted copy alive at the same time. Only the
+// fields play changes start out here (validcount, thinglist, ...).
+//
+// The watchdog won't let a single callback load a whole level, so
+// P_SetupLevel only resets state and P_SetupLevelStep does the loading
+// one array (or a slice of the things) at a time.
 
 import Toybox.Lang;
 import Toybox.WatchUi;
@@ -87,13 +93,12 @@ module PSetup {
     var lines_tag as Array<Number> = [] as Array<Number>;
     // sidenum[2] per line: lines_sidenum[i*2 + side]
     var lines_sidenum as Array<Number> = [] as Array<Number>;
-    // (line_t's bbox isn't stored, see P_LineBBox)
+    // (line_t's bbox isn't stored, PMap works it out)
     var lines_slopetype as Array<Number> = [] as Array<Number>;
     var lines_frontsector as Array<Number> = [] as Array<Number>;
     var lines_backsector as Array<Number> = [] as Array<Number>;
     var lines_validcount as Array<Number> = [] as Array<Number>;
-    // thinker_t for reversable actions, -1 for none
-    var lines_specialdata as Array<Number> = [] as Array<Number>;
+    // (line_t's specialdata isn't kept: nothing in the C code uses it)
 
     var numsides as Number = 0;
     var sides_textureoffset as Array<Number> = [] as Array<Number>;
@@ -138,127 +143,33 @@ module PSetup {
     //
     // Loading state for P_SetupLevelStep.
     //
-    var lumps as Array<ResourceId?>? = null;
+    var lumps as Array<ResourceId>? = null;
     var setupstep as Number = 0;
     var setupindex as Number = 0;
-    // current lump's data while it's being converted
+    // the THINGS lump while P_LoadThings runs
     var data as Array<Number> = [] as Array<Number>;
 
-    // Records handled per P_SetupLevelStep call, chosen to stay well under
-    // the watchdog limit.
-    const CHUNK = 128;
-    const GROUPCHUNK = 4;
-    // P_SpawnMapThing searches mobjinfo (up to NUMMOBJTYPES) and
-    // P_SpawnMobj walks the BSP for every thing, so fewer per slice.
+    // Things handled per P_SetupLevelStep call, chosen to stay well under
+    // the watchdog limit. P_SpawnMapThing searches mobjinfo (up to
+    // NUMMOBJTYPES) and P_SpawnMobj walks the BSP for every thing.
     const THINGCHUNK = 8;
 
-    function W_LumpData(ml as Number) as Array<Number> {
-        return WatchUi.loadResource(lumps[ml - 1] as ResourceId) as Array<Number>;
+    // One of the current map's arrays, by its MapLumps index.
+    function W_LevelData(k as Number) as Array<Number> {
+        return WatchUi.loadResource((lumps as Array<ResourceId>)[k]) as Array<Number>;
     }
 
     function newArray(n as Number) as Array<Number> {
         return new [n] as Array<Number>;
     }
 
-    //
-    // P_LoadVertexes
-    //
-    function P_LoadVertexes(first as Number, last as Number) as Void {
-        var ml = data;
-        var lx = vertexes_x;
-        var ly = vertexes_y;
-
-        // Copy and convert vertex coordinates,
-        // internal representation as fixed.
-        for (var i = first; i < last; i++) {
-            lx[i] = ml[i * 2] << MFixed.FRACBITS;
-            ly[i] = ml[i * 2 + 1] << MFixed.FRACBITS;
+    // n copies of v
+    function filledArray(n as Number, v as Number) as Array<Number> {
+        var a = new [n] as Array<Number>;
+        for (var i = 0; i < n; i++) {
+            a[i] = v;
         }
-    }
-
-    //
-    // P_LoadSegs
-    //
-    function P_LoadSegs(first as Number, last as Number) as Void {
-        var ml = data;
-        var sidenum = lines_sidenum;
-        var flags = lines_flags;
-        var sidesector = sides_sector;
-
-        for (var i = first; i < last; i++) {
-            var m = i * 6;
-            segs_v1[i] = ml[m];
-            segs_v2[i] = ml[m + 1];
-            segs_angle[i] = ml[m + 2] << 16;
-            segs_offset[i] = ml[m + 5] << 16;
-            var linedef = ml[m + 3];
-            segs_linedef[i] = linedef;
-            var side = ml[m + 4];
-            var sidedef = sidenum[linedef * 2 + side];
-            segs_sidedef[i] = sidedef;
-            segs_frontsector[i] = sidesector[sidedef];
-            if ((flags[linedef] & DoomData.ML_TWOSIDED) != 0) {
-                segs_backsector[i] = sidesector[sidenum[linedef * 2 + (side ^ 1)]];
-            } else {
-                segs_backsector[i] = -1;
-            }
-        }
-    }
-
-    //
-    // P_LoadSubsectors
-    //
-    function P_LoadSubsectors(first as Number, last as Number) as Void {
-        var ms = data;
-        for (var i = first; i < last; i++) {
-            subsectors_numlines[i] = ms[i * 2];
-            subsectors_firstline[i] = ms[i * 2 + 1];
-        }
-    }
-
-    //
-    // P_LoadSectors
-    //
-    function P_LoadSectors(first as Number, last as Number) as Void {
-        var ms = data;
-        for (var i = first; i < last; i++) {
-            var m = i * 7;
-            sectors_floorheight[i] = ms[m] << MFixed.FRACBITS;
-            sectors_ceilingheight[i] = ms[m + 1] << MFixed.FRACBITS;
-            // R_FlatNumForName was resolved by tools/wad2ciq.py
-            sectors_floorpic[i] = ms[m + 2];
-            sectors_ceilingpic[i] = ms[m + 3];
-            sectors_lightlevel[i] = ms[m + 4];
-            sectors_special[i] = ms[m + 5];
-            sectors_tag[i] = ms[m + 6];
-            sectors_validcount[i] = 0;
-            sectors_linecount[i] = 0;
-            sectors_thinglist[i] = -1;
-            sectors_specialdata[i] = -1;
-            sectors_soundtraversed[i] = 0;
-            sectors_soundtarget[i] = -1;
-        }
-    }
-
-    //
-    // P_LoadNodes
-    //
-    function P_LoadNodes(first as Number, last as Number) as Void {
-        var mn = data;
-        var bbox = nodes_bbox;
-        for (var i = first; i < last; i++) {
-            var m = i * 14;
-            nodes_x[i] = mn[m] << MFixed.FRACBITS;
-            nodes_y[i] = mn[m + 1] << MFixed.FRACBITS;
-            nodes_dx[i] = mn[m + 2] << MFixed.FRACBITS;
-            nodes_dy[i] = mn[m + 3] << MFixed.FRACBITS;
-            for (var j = 0; j < 2; j++) {
-                nodes_children[i * 2 + j] = mn[m + 12 + j];
-                for (var k = 0; k < 4; k++) {
-                    bbox[i * 8 + j * 4 + k] = mn[m + 4 + j * 4 + k] << MFixed.FRACBITS;
-                }
-            }
-        }
+        return a;
     }
 
     //
@@ -301,82 +212,6 @@ module PSetup {
 
     var numthings as Number = 0;
 
-    //
-    // P_LoadLineDefs
-    // Also counts secret lines for intermissions.
-    //
-    function P_LoadLineDefs(first as Number, last as Number) as Void {
-        var mld = data;
-        var vx = vertexes_x;
-        var vy = vertexes_y;
-        var sidesector = sides_sector;
-
-        for (var i = first; i < last; i++) {
-            var m = i * 7;
-            lines_flags[i] = mld[m + 2];
-            lines_special[i] = mld[m + 3];
-            lines_tag[i] = mld[m + 4];
-            var v1 = mld[m];
-            var v2 = mld[m + 1];
-            lines_v1[i] = v1;
-            lines_v2[i] = v2;
-            var dx = vx[v2] - vx[v1];
-            var dy = vy[v2] - vy[v1];
-            lines_dx[i] = dx;
-            lines_dy[i] = dy;
-
-            if (dx == 0) {
-                lines_slopetype[i] = RDefs.ST_VERTICAL;
-            } else if (dy == 0) {
-                lines_slopetype[i] = RDefs.ST_HORIZONTAL;
-            } else {
-                if (MFixed.FixedDiv(dy, dx) > 0) {
-                    lines_slopetype[i] = RDefs.ST_POSITIVE;
-                } else {
-                    lines_slopetype[i] = RDefs.ST_NEGATIVE;
-                }
-            }
-
-            // bbox is worked out on demand by P_LineBBox to save RAM.
-
-            var side0 = mld[m + 5];
-            var side1 = mld[m + 6];
-            lines_sidenum[i * 2] = side0;
-            lines_sidenum[i * 2 + 1] = side1;
-
-            if (side0 != -1) {
-                lines_frontsector[i] = sidesector[side0];
-            } else {
-                lines_frontsector[i] = -1;
-            }
-
-            if (side1 != -1) {
-                lines_backsector[i] = sidesector[side1];
-            } else {
-                lines_backsector[i] = -1;
-            }
-            lines_validcount[i] = 0;
-            lines_specialdata[i] = -1;
-        }
-    }
-
-    //
-    // P_LoadSideDefs
-    //
-    function P_LoadSideDefs(first as Number, last as Number) as Void {
-        var msd = data;
-        for (var i = first; i < last; i++) {
-            var m = i * 6;
-            sides_textureoffset[i] = msd[m] << MFixed.FRACBITS;
-            sides_rowoffset[i] = msd[m + 1] << MFixed.FRACBITS;
-            // R_TextureNumForName was resolved by tools/wad2ciq.py
-            sides_toptexture[i] = msd[m + 2];
-            sides_bottomtexture[i] = msd[m + 3];
-            sides_midtexture[i] = msd[m + 4];
-            sides_sector[i] = msd[m + 5];
-        }
-    }
-
     // blockmaplump[k]. The lump is packed two shorts per number (see
     // wad2ciq.py): even k is the low half, odd k the high half.
     function P_BlockmapLump(k as Number) as Number {
@@ -390,7 +225,7 @@ module PSetup {
     function P_LoadBlockMap() as Void {
         // SHORT() byte swapping isn't needed, wad2ciq.py already
         // unpacked the lump as little-endian shorts.
-        blockmaplump = W_LumpData(DoomData.ML_BLOCKMAP);
+        blockmaplump = W_LevelData(MapLumps.BLOCKMAP);
 
         bmaporgx = P_BlockmapLump(0) << MFixed.FRACBITS;
         bmaporgy = P_BlockmapLump(1) << MFixed.FRACBITS;
@@ -403,93 +238,6 @@ module PSetup {
         for (var i = 0; i < count; i++) {
             blocklinks[i] = -1;
         }
-    }
-
-    //
-    // P_GroupLines
-    // Builds sector line lists and subsector sector numbers.
-    // Finds block bounding boxes for sectors.
-    //
-    // Split into its three loops so each can be run in slices.
-    //
-    function P_GroupLines_Subsectors() as Void {
-        // look up sector number for each subsector
-        for (var i = 0; i < numsubsectors; i++) {
-            var seg = subsectors_firstline[i];
-            subsectors_sector[i] = sides_sector[segs_sidedef[seg]];
-        }
-    }
-
-    // count number of lines in each sector
-    function P_GroupLines_Count() as Number {
-        var linecount = sectors_linecount;
-        var front = lines_frontsector;
-        var back = lines_backsector;
-        var total = 0;
-        for (var i = 0; i < numlines; i++) {
-            total++;
-            linecount[front[i]]++;
-            if (back[i] != -1 && back[i] != front[i]) {
-                linecount[back[i]]++;
-                total++;
-            }
-        }
-        return total;
-    }
-
-    var linebufferfill as Number = 0;
-
-    // build line tables for each sector
-    function P_GroupLines_Sectors(first as Number, last as Number) as Void {
-        var bbox = [0, 0, 0, 0] as Array<Number>;
-        var front = lines_frontsector;
-        var back = lines_backsector;
-        var lv1 = lines_v1;
-        var lv2 = lines_v2;
-        var vx = vertexes_x;
-        var vy = vertexes_y;
-        var buffer = linebuffer;
-        var n = numlines;
-        var fill = linebufferfill;
-
-        for (var i = first; i < last; i++) {
-            MBBox.M_ClearBox(bbox);
-            sectors_lines[i] = fill;
-            for (var j = 0; j < n; j++) {
-                if (front[j] == i || back[j] == i) {
-                    buffer[fill] = j;
-                    fill++;
-                    MBBox.M_AddToBox(bbox, vx[lv1[j]], vy[lv1[j]]);
-                    MBBox.M_AddToBox(bbox, vx[lv2[j]], vy[lv2[j]]);
-                }
-            }
-            if (fill - sectors_lines[i] != sectors_linecount[i]) {
-                ISystem.I_Error("P_GroupLines: miscounted");
-            }
-
-            // set the degenmobj_t to the middle of the bounding box
-            sectors_soundorg_x[i] = (bbox[MBBox.BOXRIGHT] + bbox[MBBox.BOXLEFT]) / 2;
-            sectors_soundorg_y[i] = (bbox[MBBox.BOXTOP] + bbox[MBBox.BOXBOTTOM]) / 2;
-
-            // adjust bounding box to map blocks
-            var b = i * 4;
-            var block = (bbox[MBBox.BOXTOP] - bmaporgy + PLocal.MAXRADIUS) >> PLocal.MAPBLOCKSHIFT;
-            block = block >= bmapheight ? bmapheight - 1 : block;
-            sectors_blockbox[b + MBBox.BOXTOP] = block;
-
-            block = (bbox[MBBox.BOXBOTTOM] - bmaporgy - PLocal.MAXRADIUS) >> PLocal.MAPBLOCKSHIFT;
-            block = block < 0 ? 0 : block;
-            sectors_blockbox[b + MBBox.BOXBOTTOM] = block;
-
-            block = (bbox[MBBox.BOXRIGHT] - bmaporgx + PLocal.MAXRADIUS) >> PLocal.MAPBLOCKSHIFT;
-            block = block >= bmapwidth ? bmapwidth - 1 : block;
-            sectors_blockbox[b + MBBox.BOXRIGHT] = block;
-
-            block = (bbox[MBBox.BOXLEFT] - bmaporgx - PLocal.MAXRADIUS) >> PLocal.MAPBLOCKSHIFT;
-            block = block < 0 ? 0 : block;
-            sectors_blockbox[b + MBBox.BOXLEFT] = block;
-        }
-        linebufferfill = fill;
     }
 
     // How many mobjs P_LoadThings will spawn: the same tests P_SpawnMapThing
@@ -529,8 +277,8 @@ module PSetup {
     function P_SetupLevel(episode as Number, map as Number) as Void {
         // find map name
         var lumpname = "E" + episode + "M" + map;
-        lumps = MapLumps.W_MapLumps(lumpname);
-        if (lumps == null) {
+        var maplumps = MapLumps.W_MapLumps(lumpname);
+        if (maplumps == null) {
             ISystem.I_Error("W_GetNumForName: " + lumpname + " not found!");
         }
 
@@ -544,147 +292,221 @@ module PSetup {
             DoomStat.playerstarts[i] = null;
         }
 
+        // Z_FreeTags (PU_LEVEL, PU_PURGELEVEL-1): let go of the last
+        // level before loading this one, so the two are never in memory
+        // together.
+        P_FreeLevel();
+        lumps = maplumps;
+
         // Size the thinker pool for the things that will actually spawn.
-        PTick.P_InitThinkers(P_CountSpawnedThings(W_LumpData(DoomData.ML_THINGS)));
+        PTick.P_InitThinkers(P_CountSpawnedThings(W_LevelData(MapLumps.THINGS)));
         PTick.leveltime = 0;
         setupstep = 0;
         setupindex = 0;
     }
 
-    // Runs one slice of the loading P_SetupLevel does in the C code.
+    // Runs one step of the loading P_SetupLevel does in the C code.
     // Returns true once the level is fully set up.
     //
     // note: most of this ordering is important
     function P_SetupLevelStep() as Boolean {
-        var first = setupindex;
         switch (setupstep) {
             case 0:
                 P_LoadBlockMap();
-                return nextStep();
+                break;
 
+            // P_LoadVertexes
             case 1:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_VERTEXES);
-                    numvertexes = data.size() / 2;
-                    vertexes_x = newArray(numvertexes);
-                    vertexes_y = newArray(numvertexes);
-                }
-                return slice(numvertexes, CHUNK, new Lang.Method(PSetup, :P_LoadVertexes));
-
+                vertexes_x = W_LevelData(MapLumps.VERTEXES_X);
+                numvertexes = vertexes_x.size();
+                break;
             case 2:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_SECTORS);
-                    numsectors = data.size() / 7;
-                    sectors_floorheight = newArray(numsectors);
-                    sectors_ceilingheight = newArray(numsectors);
-                    sectors_floorpic = newArray(numsectors);
-                    sectors_ceilingpic = newArray(numsectors);
-                    sectors_lightlevel = newArray(numsectors);
-                    sectors_special = newArray(numsectors);
-                    sectors_tag = newArray(numsectors);
-                    sectors_validcount = newArray(numsectors);
-                    sectors_blockbox = newArray(numsectors * 4);
-                    sectors_soundorg_x = newArray(numsectors);
-                    sectors_soundorg_y = newArray(numsectors);
-                    sectors_linecount = newArray(numsectors);
-                    sectors_thinglist = newArray(numsectors);
-                    sectors_specialdata = newArray(numsectors);
-                    sectors_soundtraversed = newArray(numsectors);
-                    sectors_soundtarget = newArray(numsectors);
-                    sectors_lines = newArray(numsectors);
-                }
-                return slice(numsectors, CHUNK, new Lang.Method(PSetup, :P_LoadSectors));
+                vertexes_y = W_LevelData(MapLumps.VERTEXES_Y);
+                break;
 
+            // P_LoadSectors
             case 3:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_SIDEDEFS);
-                    numsides = data.size() / 6;
-                    sides_textureoffset = newArray(numsides);
-                    sides_rowoffset = newArray(numsides);
-                    sides_toptexture = newArray(numsides);
-                    sides_bottomtexture = newArray(numsides);
-                    sides_midtexture = newArray(numsides);
-                    sides_sector = newArray(numsides);
-                }
-                return slice(numsides, CHUNK, new Lang.Method(PSetup, :P_LoadSideDefs));
-
+                sectors_floorheight = W_LevelData(MapLumps.SECTORS_FLOORHEIGHT);
+                numsectors = sectors_floorheight.size();
+                break;
             case 4:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_LINEDEFS);
-                    numlines = data.size() / 7;
-                    lines_v1 = newArray(numlines);
-                    lines_v2 = newArray(numlines);
-                    lines_dx = newArray(numlines);
-                    lines_dy = newArray(numlines);
-                    lines_flags = newArray(numlines);
-                    lines_special = newArray(numlines);
-                    // one spare slot past the last line: the "line_t junk"
-                    // p_enemy passes to EV_DoDoor / EV_DoFloor
-                    lines_tag = newArray(numlines + 1);
-                    lines_sidenum = newArray(numlines * 2);
-                    lines_slopetype = newArray(numlines);
-                    lines_frontsector = newArray(numlines);
-                    lines_backsector = newArray(numlines);
-                    lines_validcount = newArray(numlines);
-                    lines_specialdata = newArray(numlines);
-                }
-                return slice(numlines, CHUNK, new Lang.Method(PSetup, :P_LoadLineDefs));
-
+                sectors_ceilingheight = W_LevelData(MapLumps.SECTORS_CEILINGHEIGHT);
+                break;
             case 5:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_SSECTORS);
-                    numsubsectors = data.size() / 2;
-                    subsectors_sector = newArray(numsubsectors);
-                    subsectors_numlines = newArray(numsubsectors);
-                    subsectors_firstline = newArray(numsubsectors);
-                }
-                return slice(numsubsectors, CHUNK, new Lang.Method(PSetup, :P_LoadSubsectors));
-
+                // R_FlatNumForName was resolved by tools/wad2ciq.py
+                sectors_floorpic = W_LevelData(MapLumps.SECTORS_FLOORPIC);
+                break;
             case 6:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_NODES);
-                    numnodes = data.size() / 14;
-                    nodes_x = newArray(numnodes);
-                    nodes_y = newArray(numnodes);
-                    nodes_dx = newArray(numnodes);
-                    nodes_dy = newArray(numnodes);
-                    nodes_bbox = newArray(numnodes * 8);
-                    nodes_children = newArray(numnodes * 2);
-                }
-                return slice(numnodes, CHUNK, new Lang.Method(PSetup, :P_LoadNodes));
-
+                sectors_ceilingpic = W_LevelData(MapLumps.SECTORS_CEILINGPIC);
+                break;
             case 7:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_SEGS);
-                    numsegs = data.size() / 6;
-                    segs_v1 = newArray(numsegs);
-                    segs_v2 = newArray(numsegs);
-                    segs_offset = newArray(numsegs);
-                    segs_angle = newArray(numsegs);
-                    segs_sidedef = newArray(numsegs);
-                    segs_linedef = newArray(numsegs);
-                    segs_frontsector = newArray(numsegs);
-                    segs_backsector = newArray(numsegs);
-                }
-                return slice(numsegs, CHUNK, new Lang.Method(PSetup, :P_LoadSegs));
-
+                sectors_lightlevel = W_LevelData(MapLumps.SECTORS_LIGHTLEVEL);
+                break;
             case 8:
-                data = [] as Array<Number>;
-                P_GroupLines_Subsectors();
-                linebuffer = newArray(P_GroupLines_Count());
-                linebufferfill = 0;
-                return nextStep();
-
+                sectors_special = W_LevelData(MapLumps.SECTORS_SPECIAL);
+                break;
             case 9:
-                return slice(numsectors, GROUPCHUNK, new Lang.Method(PSetup, :P_GroupLines_Sectors));
-
+                sectors_tag = W_LevelData(MapLumps.SECTORS_TAG);
+                break;
             case 10:
-                rejectmatrix = W_LumpData(DoomData.ML_REJECT);
-                return nextStep();
+                sectors_validcount = filledArray(numsectors, 0);
+                sectors_thinglist = filledArray(numsectors, -1);
+                sectors_specialdata = filledArray(numsectors, -1);
+                sectors_soundtraversed = filledArray(numsectors, 0);
+                sectors_soundtarget = filledArray(numsectors, -1);
+                break;
 
+            // P_LoadSideDefs
             case 11:
-                if (first == 0) {
-                    data = W_LumpData(DoomData.ML_THINGS);
+                sides_textureoffset = W_LevelData(MapLumps.SIDES_TEXTUREOFFSET);
+                numsides = sides_textureoffset.size();
+                break;
+            case 12:
+                sides_rowoffset = W_LevelData(MapLumps.SIDES_ROWOFFSET);
+                break;
+            case 13:
+                // R_TextureNumForName was resolved by tools/wad2ciq.py
+                sides_toptexture = W_LevelData(MapLumps.SIDES_TOPTEXTURE);
+                break;
+            case 14:
+                sides_bottomtexture = W_LevelData(MapLumps.SIDES_BOTTOMTEXTURE);
+                break;
+            case 15:
+                sides_midtexture = W_LevelData(MapLumps.SIDES_MIDTEXTURE);
+                break;
+            case 16:
+                sides_sector = W_LevelData(MapLumps.SIDES_SECTOR);
+                break;
+
+            // P_LoadLineDefs
+            case 17:
+                lines_v1 = W_LevelData(MapLumps.LINES_V1);
+                numlines = lines_v1.size();
+                break;
+            case 18:
+                lines_v2 = W_LevelData(MapLumps.LINES_V2);
+                break;
+            case 19:
+                lines_dx = W_LevelData(MapLumps.LINES_DX);
+                break;
+            case 20:
+                lines_dy = W_LevelData(MapLumps.LINES_DY);
+                break;
+            case 21:
+                lines_flags = W_LevelData(MapLumps.LINES_FLAGS);
+                break;
+            case 22:
+                lines_special = W_LevelData(MapLumps.LINES_SPECIAL);
+                break;
+            case 23:
+                // one spare slot past the last line: the "line_t junk"
+                // p_enemy passes to EV_DoDoor / EV_DoFloor
+                lines_tag = W_LevelData(MapLumps.LINES_TAG);
+                break;
+            case 24:
+                lines_sidenum = W_LevelData(MapLumps.LINES_SIDENUM);
+                break;
+            case 25:
+                // (line_t's bbox isn't stored, PMap works it out)
+                lines_slopetype = W_LevelData(MapLumps.LINES_SLOPETYPE);
+                break;
+            case 26:
+                lines_frontsector = W_LevelData(MapLumps.LINES_FRONTSECTOR);
+                break;
+            case 27:
+                lines_backsector = W_LevelData(MapLumps.LINES_BACKSECTOR);
+                break;
+            case 28:
+                lines_validcount = filledArray(numlines, 0);
+                break;
+
+            // P_LoadSubsectors
+            case 29:
+                subsectors_numlines = W_LevelData(MapLumps.SUBSECTORS_NUMLINES);
+                numsubsectors = subsectors_numlines.size();
+                break;
+            case 30:
+                subsectors_firstline = W_LevelData(MapLumps.SUBSECTORS_FIRSTLINE);
+                break;
+
+            // P_LoadNodes
+            case 31:
+                nodes_x = W_LevelData(MapLumps.NODES_X);
+                numnodes = nodes_x.size();
+                break;
+            case 32:
+                nodes_y = W_LevelData(MapLumps.NODES_Y);
+                break;
+            case 33:
+                nodes_dx = W_LevelData(MapLumps.NODES_DX);
+                break;
+            case 34:
+                nodes_dy = W_LevelData(MapLumps.NODES_DY);
+                break;
+            case 35:
+                nodes_bbox = W_LevelData(MapLumps.NODES_BBOX);
+                break;
+            case 36:
+                nodes_children = W_LevelData(MapLumps.NODES_CHILDREN);
+                break;
+
+            // P_LoadSegs
+            case 37:
+                segs_v1 = W_LevelData(MapLumps.SEGS_V1);
+                numsegs = segs_v1.size();
+                break;
+            case 38:
+                segs_v2 = W_LevelData(MapLumps.SEGS_V2);
+                break;
+            case 39:
+                segs_offset = W_LevelData(MapLumps.SEGS_OFFSET);
+                break;
+            case 40:
+                segs_angle = W_LevelData(MapLumps.SEGS_ANGLE);
+                break;
+            case 41:
+                segs_sidedef = W_LevelData(MapLumps.SEGS_SIDEDEF);
+                break;
+            case 42:
+                segs_linedef = W_LevelData(MapLumps.SEGS_LINEDEF);
+                break;
+            case 43:
+                segs_frontsector = W_LevelData(MapLumps.SEGS_FRONTSECTOR);
+                break;
+            case 44:
+                segs_backsector = W_LevelData(MapLumps.SEGS_BACKSECTOR);
+                break;
+
+            case 45:
+                rejectmatrix = W_LevelData(MapLumps.REJECT);
+                break;
+
+            // P_GroupLines
+            case 46:
+                subsectors_sector = W_LevelData(MapLumps.SUBSECTORS_SECTOR);
+                break;
+            case 47:
+                linebuffer = W_LevelData(MapLumps.LINEBUFFER);
+                break;
+            case 48:
+                sectors_lines = W_LevelData(MapLumps.SECTORS_LINES);
+                break;
+            case 49:
+                sectors_linecount = W_LevelData(MapLumps.SECTORS_LINECOUNT);
+                break;
+            case 50:
+                sectors_blockbox = W_LevelData(MapLumps.SECTORS_BLOCKBOX);
+                break;
+            case 51:
+                sectors_soundorg_x = W_LevelData(MapLumps.SECTORS_SOUNDORG_X);
+                break;
+            case 52:
+                sectors_soundorg_y = W_LevelData(MapLumps.SECTORS_SOUNDORG_Y);
+                break;
+
+            case 53:
+                if (setupindex == 0) {
+                    data = W_LevelData(MapLumps.THINGS);
                     numthings = data.size() / 5;
                 }
                 return slice(numthings, THINGCHUNK, new Lang.Method(PSetup, :P_LoadThings));
@@ -699,6 +521,71 @@ module PSetup {
                 PSpec.P_SpawnSpecials();
                 return true;
         }
+        return nextStep();
+    }
+
+    // Z_FreeTags for the level's arrays.
+    function P_FreeLevel() as Void {
+        var none = [] as Array<Number>;
+        vertexes_x = none;
+        vertexes_y = none;
+        segs_v1 = none;
+        segs_v2 = none;
+        segs_offset = none;
+        segs_angle = none;
+        segs_sidedef = none;
+        segs_linedef = none;
+        segs_frontsector = none;
+        segs_backsector = none;
+        sectors_floorheight = none;
+        sectors_ceilingheight = none;
+        sectors_floorpic = none;
+        sectors_ceilingpic = none;
+        sectors_lightlevel = none;
+        sectors_special = none;
+        sectors_tag = none;
+        sectors_validcount = none;
+        sectors_blockbox = none;
+        sectors_soundorg_x = none;
+        sectors_soundorg_y = none;
+        sectors_linecount = none;
+        sectors_thinglist = none;
+        sectors_specialdata = none;
+        sectors_soundtraversed = none;
+        sectors_soundtarget = none;
+        sectors_lines = none;
+        subsectors_sector = none;
+        subsectors_numlines = none;
+        subsectors_firstline = none;
+        nodes_x = none;
+        nodes_y = none;
+        nodes_dx = none;
+        nodes_dy = none;
+        nodes_bbox = none;
+        nodes_children = none;
+        lines_v1 = none;
+        lines_v2 = none;
+        lines_dx = none;
+        lines_dy = none;
+        lines_flags = none;
+        lines_special = none;
+        lines_tag = none;
+        lines_sidenum = none;
+        lines_slopetype = none;
+        lines_frontsector = none;
+        lines_backsector = none;
+        lines_validcount = none;
+        sides_textureoffset = none;
+        sides_rowoffset = none;
+        sides_toptexture = none;
+        sides_bottomtexture = none;
+        sides_midtexture = none;
+        sides_sector = none;
+        blockmaplump = none;
+        blocklinks = none;
+        rejectmatrix = none;
+        linebuffer = none;
+        data = none;
     }
 
     //

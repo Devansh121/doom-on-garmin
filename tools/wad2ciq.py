@@ -260,7 +260,68 @@ def unpack_records(data, fmt):
     return out
 
 
-def convert_map(wad, mapname, textures, firstflat):
+MININT = -(1 << 31)
+MAXINT = (1 << 31) - 1
+FRACBITS = 16
+NF_SUBSECTOR = 0x8000
+ML_TWOSIDED = 4
+# r_defs.h slopetype_t
+ST_HORIZONTAL, ST_VERTICAL, ST_POSITIVE, ST_NEGATIVE = range(4)
+# m_bbox.h
+BOXTOP, BOXBOTTOM, BOXLEFT, BOXRIGHT = range(4)
+# p_local.h
+MAPBLOCKSHIFT = FRACBITS + 7
+MAXRADIUS = 32 << FRACBITS
+
+
+def s32(v):
+    """v as a C int (two's complement wrap to 32 bits)."""
+    v &= 0xFFFFFFFF
+    return v - (1 << 32) if v >= (1 << 31) else v
+
+
+def cdiv(a, b):
+    """C integer division, truncating toward zero."""
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+
+
+def c_abs(a):
+    # abs(MININT) stays MININT
+    return s32(-a) if a < 0 else a
+
+
+def fixed_div(a, b):
+    """m_fixed.c FixedDiv, as MFixed.FixedDiv computes it."""
+    if (c_abs(a) >> 14) >= c_abs(b):
+        return MININT if (a ^ b) < 0 else MAXINT
+    return s32(cdiv(a << 16, b))
+
+
+def m_clear_box():
+    box = [0] * 4
+    box[BOXTOP] = box[BOXRIGHT] = MININT
+    box[BOXBOTTOM] = box[BOXLEFT] = MAXINT
+    return box
+
+
+def m_add_to_box(box, x, y):
+    # The else ifs are m_bbox.c's: the first point only sets left and
+    # bottom, so a box can end up with right/top still at MININT.
+    if x < box[BOXLEFT]:
+        box[BOXLEFT] = x
+    elif x > box[BOXRIGHT]:
+        box[BOXRIGHT] = x
+    if y < box[BOXBOTTOM]:
+        box[BOXBOTTOM] = y
+    elif y > box[BOXTOP]:
+        box[BOXTOP] = y
+
+
+def raw_lumps(wad, mapname, textures, firstflat):
+    """The map lumps as flat lists of numbers in doomdata.h field order,
+    texture and flat names resolved to numbers. These are what p_setup.c
+    reads; the test tools' C reference programs read them too."""
     base = wad.num_for_name(mapname)
     if base < 0:
         sys.exit(f"map {mapname} not in WAD")
@@ -279,13 +340,11 @@ def convert_map(wad, mapname, textures, firstflat):
     bm = unpack_records(lump["BLOCKMAP"], "<h")
     if len(bm) % 2:
         bm.append(0)
-    out["blockmap"] = [(bm[k] & 0xFFFF) | ((bm[k + 1] & 0xFFFF) << 16) for k in range(0, len(bm), 2)]
-    out["blockmap"] = [v - (1 << 32) if v >= (1 << 31) else v for v in out["blockmap"]]
+    out["blockmap"] = [s32((bm[k] & 0xFFFF) | ((bm[k + 1] & 0xFFFF) << 16)) for k in range(0, len(bm), 2)]
     # 32 bits per number: bit pnum of the lump (bit pnum & 7 of byte
     # pnum >> 3, as p_sight.c reads it) is bit pnum & 31 of [pnum >> 5].
     rej = lump["REJECT"] + bytes((-len(lump["REJECT"])) % 4)
-    words = [struct.unpack_from("<I", rej, o)[0] for o in range(0, len(rej), 4)]
-    out["reject"] = [w - (1 << 32) if w >= (1 << 31) else w for w in words]
+    out["reject"] = [s32(struct.unpack_from("<I", rej, o)[0]) for o in range(0, len(rej), 4)]
 
     sides = []
     data = lump["SIDEDEFS"]
@@ -306,6 +365,178 @@ def convert_map(wad, mapname, textures, firstflat):
         sectors += [floorh, ceilh, flat_num(wad, firstflat, floorpic),
                     flat_num(wad, firstflat, ceilpic), light, special, tag]
     out["sectors"] = sectors
+    return out
+
+
+def level_arrays(raw):
+    """Everything p_setup.c's P_LoadVertexes .. P_GroupLines work out from
+    the lumps, as the arrays PSetup keeps at runtime, so P_SetupLevelStep
+    only has to load them. The steps and the arithmetic (32-bit, C
+    rounding) are p_setup.c's."""
+    out = {}
+
+    # P_LoadVertexes
+    v = raw["vertexes"]
+    vx = [s32(x << FRACBITS) for x in v[0::2]]
+    vy = [s32(y << FRACBITS) for y in v[1::2]]
+    out["vertexes_x"] = vx
+    out["vertexes_y"] = vy
+
+    # P_LoadSectors
+    ms = raw["sectors"]
+    numsectors = len(ms) // 7
+    out["sectors_floorheight"] = [s32(h << FRACBITS) for h in ms[0::7]]
+    out["sectors_ceilingheight"] = [s32(h << FRACBITS) for h in ms[1::7]]
+    out["sectors_floorpic"] = ms[2::7]
+    out["sectors_ceilingpic"] = ms[3::7]
+    out["sectors_lightlevel"] = ms[4::7]
+    out["sectors_special"] = ms[5::7]
+    out["sectors_tag"] = ms[6::7]
+
+    # P_LoadSideDefs
+    msd = raw["sidedefs"]
+    side_sector = msd[5::6]
+    out["sides_textureoffset"] = [s32(o << FRACBITS) for o in msd[0::6]]
+    out["sides_rowoffset"] = [s32(o << FRACBITS) for o in msd[1::6]]
+    out["sides_toptexture"] = msd[2::6]
+    out["sides_bottomtexture"] = msd[3::6]
+    out["sides_midtexture"] = msd[4::6]
+    out["sides_sector"] = side_sector
+
+    # P_LoadLineDefs
+    mld = raw["linedefs"]
+    numlines = len(mld) // 7
+    lv1, lv2, ldx, ldy, slope, sidenum, front, back = [], [], [], [], [], [], [], []
+    for i in range(numlines):
+        a, b, flags, special, tag, side0, side1 = mld[i * 7:i * 7 + 7]
+        dx = s32(vx[b] - vx[a])
+        dy = s32(vy[b] - vy[a])
+        lv1.append(a)
+        lv2.append(b)
+        ldx.append(dx)
+        ldy.append(dy)
+        if dx == 0:
+            slope.append(ST_VERTICAL)
+        elif dy == 0:
+            slope.append(ST_HORIZONTAL)
+        elif fixed_div(dy, dx) > 0:
+            slope.append(ST_POSITIVE)
+        else:
+            slope.append(ST_NEGATIVE)
+        sidenum += [side0, side1]
+        front.append(side_sector[side0] if side0 != -1 else -1)
+        back.append(side_sector[side1] if side1 != -1 else -1)
+    out["lines_v1"] = lv1
+    out["lines_v2"] = lv2
+    out["lines_dx"] = ldx
+    out["lines_dy"] = ldy
+    out["lines_flags"] = mld[2::7]
+    out["lines_special"] = mld[3::7]
+    # one spare slot past the last line: the "line_t junk" p_enemy passes
+    # to EV_DoDoor / EV_DoFloor
+    out["lines_tag"] = mld[4::7] + [0]
+    out["lines_sidenum"] = sidenum
+    out["lines_slopetype"] = slope
+    out["lines_frontsector"] = front
+    out["lines_backsector"] = back
+
+    # P_LoadSubsectors
+    mss = raw["ssectors"]
+    out["subsectors_numlines"] = mss[0::2]
+    out["subsectors_firstline"] = mss[1::2]
+
+    # P_LoadNodes
+    mn = raw["nodes"]
+    numnodes = len(mn) // 14
+    out["nodes_x"] = [s32(x << FRACBITS) for x in mn[0::14]]
+    out["nodes_y"] = [s32(x << FRACBITS) for x in mn[1::14]]
+    out["nodes_dx"] = [s32(x << FRACBITS) for x in mn[2::14]]
+    out["nodes_dy"] = [s32(x << FRACBITS) for x in mn[3::14]]
+    out["nodes_bbox"] = [s32(mn[i * 14 + 4 + k] << FRACBITS) for i in range(numnodes) for k in range(8)]
+    out["nodes_children"] = [mn[i * 14 + 12 + j] for i in range(numnodes) for j in range(2)]
+
+    # P_LoadSegs
+    ml = raw["segs"]
+    numsegs = len(ml) // 6
+    seg_sidedef = []
+    seg_front = []
+    seg_back = []
+    for i in range(numsegs):
+        linedef, side = ml[i * 6 + 3], ml[i * 6 + 4]
+        sd = sidenum[linedef * 2 + side]
+        seg_sidedef.append(sd)
+        seg_front.append(side_sector[sd])
+        if mld[linedef * 7 + 2] & ML_TWOSIDED:
+            seg_back.append(side_sector[sidenum[linedef * 2 + (side ^ 1)]])
+        else:
+            seg_back.append(-1)
+    out["segs_v1"] = ml[0::6]
+    out["segs_v2"] = ml[1::6]
+    out["segs_offset"] = [s32(o << 16) for o in ml[5::6]]
+    out["segs_angle"] = [s32(a << 16) for a in ml[2::6]]
+    out["segs_sidedef"] = seg_sidedef
+    out["segs_linedef"] = ml[3::6]
+    out["segs_frontsector"] = seg_front
+    out["segs_backsector"] = seg_back
+
+    # P_GroupLines
+    # look up sector number for each subsector
+    out["subsectors_sector"] = [side_sector[seg_sidedef[first]] for first in out["subsectors_firstline"]]
+
+    # count number of lines in each sector
+    linecount = [0] * numsectors
+    for i in range(numlines):
+        linecount[front[i]] += 1
+        if back[i] != -1 and back[i] != front[i]:
+            linecount[back[i]] += 1
+
+    # build line tables for each sector
+    bm = raw["blockmap"]
+    bmaporgx = s32((bm[0] << 16) & 0xFFFF0000)  # (short) blockmaplump[0] << FRACBITS
+    bmaporgy = s32(bm[0] & 0xFFFF0000)            # (short) blockmaplump[1] << FRACBITS
+    bmapwidth = s32(bm[1] << 16) >> 16
+    bmapheight = bm[1] >> 16
+    linebuffer = []
+    sectors_lines = []
+    blockbox = []
+    soundorg_x = []
+    soundorg_y = []
+    for i in range(numsectors):
+        bbox = m_clear_box()
+        sectors_lines.append(len(linebuffer))
+        for j in range(numlines):
+            if front[j] == i or back[j] == i:
+                linebuffer.append(j)
+                m_add_to_box(bbox, vx[lv1[j]], vy[lv1[j]])
+                m_add_to_box(bbox, vx[lv2[j]], vy[lv2[j]])
+        if len(linebuffer) - sectors_lines[i] != linecount[i]:
+            sys.exit("P_GroupLines: miscounted")
+
+        # set the degenmobj_t to the middle of the bounding box
+        soundorg_x.append(cdiv(s32(bbox[BOXRIGHT] + bbox[BOXLEFT]), 2))
+        soundorg_y.append(cdiv(s32(bbox[BOXTOP] + bbox[BOXBOTTOM]), 2))
+
+        # adjust bounding box to map blocks
+        box = [0] * 4
+        block = s32(bbox[BOXTOP] - bmaporgy + MAXRADIUS) >> MAPBLOCKSHIFT
+        box[BOXTOP] = bmapheight - 1 if block >= bmapheight else block
+        block = s32(bbox[BOXBOTTOM] - bmaporgy - MAXRADIUS) >> MAPBLOCKSHIFT
+        box[BOXBOTTOM] = 0 if block < 0 else block
+        block = s32(bbox[BOXRIGHT] - bmaporgx + MAXRADIUS) >> MAPBLOCKSHIFT
+        box[BOXRIGHT] = bmapwidth - 1 if block >= bmapwidth else block
+        block = s32(bbox[BOXLEFT] - bmaporgx - MAXRADIUS) >> MAPBLOCKSHIFT
+        box[BOXLEFT] = 0 if block < 0 else block
+        blockbox += box
+    out["sectors_blockbox"] = blockbox
+    out["sectors_soundorg_x"] = soundorg_x
+    out["sectors_soundorg_y"] = soundorg_y
+    out["sectors_linecount"] = linecount
+    out["sectors_lines"] = sectors_lines
+    out["linebuffer"] = linebuffer
+
+    # loaded as they are
+    for name in ("things", "blockmap", "reject"):
+        out[name] = raw[name]
     return out
 
 
@@ -352,21 +583,34 @@ def main():
     os.makedirs(resdir, exist_ok=True)
     os.makedirs(srcdir, exist_ok=True)
 
+    lumpdir = os.path.join(args.out, "lumps")
+    os.makedirs(lumpdir, exist_ok=True)
+    for fname in os.listdir(resdir):
+        if fname.startswith("e1m") and fname.endswith(".json"):
+            os.remove(os.path.join(resdir, fname))
+
     entries = []
     cases = []
+    fields = None
     for mapname in args.maps:
         mapname = mapname.upper()
-        converted = convert_map(wad, mapname, textures, firstflat)
-        for lumpname, values in converted.items():
-            rid = f"{mapname}_{lumpname}".lower()
+        raw = raw_lumps(wad, mapname, textures, firstflat)
+        # The plain lumps, for test/lump.py and the C reference programs.
+        # They aren't built into the app.
+        for lumpname, values in raw.items():
+            with open(os.path.join(lumpdir, f"{mapname}_{lumpname}.json".lower()), "w") as f:
+                json.dump(values, f, separators=(",", ":"))
+        level = level_arrays(raw)
+        fields = fields or list(level)
+        assert list(level) == fields
+        for name in fields:
+            rid = f"{mapname}_{name}".lower()
             fname = f"{rid}.json"
             with open(os.path.join(resdir, fname), "w") as f:
-                json.dump(values, f, separators=(",", ":"))
+                json.dump(level[name], f, separators=(",", ":"))
             entries.append(f'    <jsonData id="{rid}" filename="{fname}" />')
-            print(f"{rid}: {len(values)} values")
-        # Indexed by ML_* - 1 (ML_LABEL is the map marker itself).
-        ids = ", ".join(f"Rez.JsonData.{mapname.lower()}_{l.lower()}" if l.lower() in converted else "null"
-                        for l in MAP_LUMPS)
+            print(f"{rid}: {len(level[name])} values")
+        ids = ", ".join(f"Rez.JsonData.{mapname.lower()}_{name}" for name in fields)
         cases.append(f'        if (name.equals("{mapname}")) {{\n            return [{ids}];\n        }}')
 
     for name, values in convert_colors(wad, args.gamma).items():
@@ -384,13 +628,16 @@ def main():
     with open(os.path.join(resdir, "maps.xml"), "w") as f:
         f.write("<jsonDataResources>\n" + "\n".join(entries) + "\n</jsonDataResources>\n")
 
+    consts = "".join(f"    const {name.upper()} = {i};\n" for i, name in enumerate(fields))
     with open(os.path.join(srcdir, "MapLumps.mc"), "w") as f:
         f.write("// Generated by tools/wad2ciq.py, do not edit.\n\n"
                 "import Toybox.Lang;\n\n"
                 "module MapLumps {\n\n"
-                "    // Resource ids for a map's lumps, indexed by ML_* - 1, or null if\n"
-                "    // the map isn't built into the app.\n"
-                "    function W_MapLumps(name as String) as Array<ResourceId?>? {\n"
+                "    // Where each array is in W_MapLumps' list.\n"
+                + consts + "\n"
+                "    // Resource ids for a map's arrays, or null if the map isn't\n"
+                "    // built into the app.\n"
+                "    function W_MapLumps(name as String) as Array<ResourceId>? {\n"
                 + "\n".join(cases) + "\n        return null;\n    }\n}\n")
 
 

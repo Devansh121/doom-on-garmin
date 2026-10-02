@@ -13,7 +13,7 @@ function testCheckSight(logger as Test.Logger) as Boolean {
     // A trooper-sized mobj (56 high) on the floor at each of the first 20
     // E1M1 thing spots; every ordered pair is checked. Rejected pairs leave
     // topslope / bottomslope from the previous call, same as the C.
-    var things = PSetup.W_LumpData(DoomData.ML_THINGS);
+    var things = PSetup.W_LevelData(MapLumps.THINGS);
     var mos = new [20] as Array<Number>;
     for (var i = 0; i < 20; i++) {
         mos[i] = PMobj.P_SpawnMobj(things[i * 5] << 16, things[i * 5 + 1] << 16, PMobj.ONFLOORZ, Info.MT_POSSESSED);

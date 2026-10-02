@@ -7,7 +7,7 @@ sectors) so the C side doesn't need a WAD loader.
 import json
 import os
 
-base = os.path.join(os.path.dirname(__file__), "..", "generated", "resources")
+base = os.path.join(os.path.dirname(__file__), "..", "generated", "lumps")
 L = lambda n: json.load(open(os.path.join(base, f"e1m1_{n}.json")))
 v, ld, sd, sec, seg, ss, nodes = (L(n) for n in
     ("vertexes", "linedefs", "sidedefs", "sectors", "segs", "ssectors", "nodes"))

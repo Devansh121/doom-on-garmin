@@ -18,7 +18,7 @@ BASE = os.path.join(os.path.dirname(__file__), "..")
 def load(name, mapname="e1m1"):
     if name.endswith(".json"):
         return json.load(open(os.path.join(BASE, name)))
-    d = json.load(open(os.path.join(BASE, "generated", "resources", f"{mapname}_{name}.json")))
+    d = json.load(open(os.path.join(BASE, "generated", "lumps", f"{mapname}_{name}.json")))
     if name == "blockmap":
         out = []
         for w in d:
