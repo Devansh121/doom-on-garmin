@@ -420,3 +420,35 @@ function testBlockLinesIterator(logger as Test.Logger) as Boolean {
     Test.assertEqual(counter.visitsum, 26299201l);
     return true;
 }
+
+(:test)
+function testPointInSubsectorMatchesRenderer(logger as Test.Logger) as Boolean {
+    // P_PointInSubsector is R_PointInSubsector written out for speed; it
+    // has to land in the same subsector everywhere, including points on
+    // partition lines and far off the map.
+    loadE1M1();
+    var seed = 12345;
+    for (var i = 0; i < 3000; i++) {
+        seed = seed * 1103515245 + 12345;
+        var x = ((seed >> 8) & 0x1fff) - 1024;
+        seed = seed * 1103515245 + 12345;
+        var y = -((seed >> 8) & 0x1fff);
+        seed = seed * 1103515245 + 12345;
+        var frac = (seed >> 4) & 0xffff;
+        if ((i & 3) == 0) {
+            frac = 0;   // whole map units, often right on a partition
+        }
+        var fx = (x << 16) + frac;
+        var fy = (y << 16) + frac;
+        Test.assertEqualMessage(PMapUtl.P_PointInSubsector(fx, fy), RMain.R_PointInSubsector(fx, fy), "point " + fx + " " + fy);
+    }
+    // node origins themselves
+    for (var n = 0; n < PSetup.numnodes; n++) {
+        var fx = PSetup.nodes_x[n];
+        var fy = PSetup.nodes_y[n];
+        Test.assertEqual(PMapUtl.P_PointInSubsector(fx, fy), RMain.R_PointInSubsector(fx, fy));
+        Test.assertEqual(PMapUtl.P_PointInSubsector(fx + PSetup.nodes_dx[n], fy - 1), RMain.R_PointInSubsector(fx + PSetup.nodes_dx[n], fy - 1));
+    }
+    Test.assertEqual(PMapUtl.P_PointInSubsector(DoomType.MAXINT, DoomType.MININT), RMain.R_PointInSubsector(DoomType.MAXINT, DoomType.MININT));
+    return true;
+}

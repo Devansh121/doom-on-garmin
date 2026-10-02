@@ -73,6 +73,81 @@ module PMapUtl {
     }
 
     //
+    // R_PointInSubsector for the play code
+    //
+    // The same walk as RMain.R_PointInSubsector, with R_PointOnSide
+    // written out in the loop and the node arrays in locals. Every
+    // P_CheckPosition and P_SetThingPosition does one of these, and on the
+    // watch the call per node plus its module variable reads cost far
+    // more than the arithmetic. The side test is R_PointOnSide's exactly,
+    // including the sign bit shortcut; the FixedMuls are done as
+    // a * (b >> 16) + ((a * (b & 0xffff)) >> 16), which is exact because
+    // a (node delta >> FRACBITS) fits in 16 bits.
+    //
+    function P_PointInSubsector(x as Number, y as Number) as Number {
+        var nodenum = PSetup.numnodes - 1;
+
+        // single subsector is a special case
+        if (nodenum == -1) {
+            return 0;
+        }
+
+        var nodes_x = PSetup.nodes_x;
+        var nodes_y = PSetup.nodes_y;
+        var nodes_dx = PSetup.nodes_dx;
+        var nodes_dy = PSetup.nodes_dy;
+        var children = PSetup.nodes_children;
+        var ndx;
+        var ndy;
+        var dx;
+        var dy;
+        var a;
+        var side;
+
+        while ((nodenum & DoomData.NF_SUBSECTOR) == 0) {
+            // R_PointOnSide(x, y, nodenum)
+            ndx = nodes_dx[nodenum];
+            ndy = nodes_dy[nodenum];
+
+            if (ndx == 0) {
+                if (x <= nodes_x[nodenum]) {
+                    side = ndy > 0 ? 1 : 0;
+                } else {
+                    side = ndy < 0 ? 1 : 0;
+                }
+            } else if (ndy == 0) {
+                if (y <= nodes_y[nodenum]) {
+                    side = ndx < 0 ? 1 : 0;
+                } else {
+                    side = ndx > 0 ? 1 : 0;
+                }
+            } else {
+                dx = (x - nodes_x[nodenum]);
+                dy = (y - nodes_y[nodenum]);
+
+                // Try to quickly decide by looking at sign bits.
+                if (((ndy ^ ndx ^ dx ^ dy) & 0x80000000) != 0) {
+                    // (left is negative)
+                    side = ((ndy ^ dx) & 0x80000000) != 0 ? 1 : 0;
+                } else {
+                    // left = FixedMul(ndy >> FRACBITS, dx) into dx,
+                    // right = FixedMul(dy, ndx >> FRACBITS) into dy
+                    a = ndy >> MFixed.FRACBITS;
+                    dx = a * (dx >> 16) + ((a * (dx & 0xffff)) >> 16);
+                    a = ndx >> MFixed.FRACBITS;
+                    dy = a * (dy >> 16) + ((a * (dy & 0xffff)) >> 16);
+
+                    // front side 0, back side 1
+                    side = dy < dx ? 0 : 1;
+                }
+            }
+            nodenum = children[nodenum * 2 + side];
+        }
+
+        return nodenum & ~DoomData.NF_SUBSECTOR;
+    }
+
+    //
     // P_BoxOnLineSide
     // Considers the line to be infinite
     // Returns side 0 or 1, -1 if box crosses the line.
@@ -372,7 +447,7 @@ module PMapUtl {
         var flags = PMobj.mobjs_flags[thing];
 
         // link into subsector
-        var ss = RMain.R_PointInSubsector(PMobj.mobjs_x[thing], PMobj.mobjs_y[thing]);
+        var ss = P_PointInSubsector(PMobj.mobjs_x[thing], PMobj.mobjs_y[thing]);
         PMobj.mobjs_subsector[thing] = ss;
 
         if ((flags & PMobj.MF_NOSECTOR) == 0) {

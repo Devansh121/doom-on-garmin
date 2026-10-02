@@ -96,7 +96,7 @@ module PMap {
         tmbbox[MBBox.BOXRIGHT] = x + radius;
         tmbbox[MBBox.BOXLEFT] = x - radius;
 
-        var newsubsec = RMain.R_PointInSubsector(x, y);
+        var newsubsec = PMapUtl.P_PointInSubsector(x, y);
         ceilingline = -1;
 
         // The base floor/ceiling is from the subsector
@@ -351,6 +351,10 @@ module PMap {
     //  speciallines[]
     //  numspeciallines
     //
+    // Every monster step and every player move runs this, so for the
+    // watch the two block loops don't go through P_BlockThingsIterator /
+    // P_BlockLinesIterator and a Method call per thing and line; they are
+    // written out in P_CheckThingBlocks and P_CheckLineBlocks below.
     function P_CheckPosition(thing as Number, x as Number, y as Number) as Boolean {
         tmthing = thing;
         tmflags = PMobj.mobjs_flags[thing];
@@ -364,7 +368,7 @@ module PMap {
         tmbbox[MBBox.BOXRIGHT] = x + radius;
         tmbbox[MBBox.BOXLEFT] = x - radius;
 
-        var newsubsec = RMain.R_PointInSubsector(x, y);
+        var newsubsec = PMapUtl.P_PointInSubsector(x, y);
         ceilingline = -1;
 
         // The base floor / ceiling is from the subsector
@@ -393,13 +397,8 @@ module PMap {
         var yl = (tmbbox[MBBox.BOXBOTTOM] - PSetup.bmaporgy - PLocal.MAXRADIUS) >> PLocal.MAPBLOCKSHIFT;
         var yh = (tmbbox[MBBox.BOXTOP] - PSetup.bmaporgy + PLocal.MAXRADIUS) >> PLocal.MAPBLOCKSHIFT;
 
-        var func = new Lang.Method(PMap, :PIT_CheckThing);
-        for (var bx = xl; bx <= xh; bx++) {
-            for (var by = yl; by <= yh; by++) {
-                if (!PMapUtl.P_BlockThingsIterator(bx, by, func)) {
-                    return false;
-                }
-            }
+        if (!P_CheckThingBlocks(xl, xh, yl, yh)) {
+            return false;
         }
 
         // check lines
@@ -408,15 +407,141 @@ module PMap {
         yl = (tmbbox[MBBox.BOXBOTTOM] - PSetup.bmaporgy) >> PLocal.MAPBLOCKSHIFT;
         yh = (tmbbox[MBBox.BOXTOP] - PSetup.bmaporgy) >> PLocal.MAPBLOCKSHIFT;
 
-        func = new Lang.Method(PMap, :PIT_CheckLine);
+        return P_CheckLineBlocks(xl, xh, yl, yh);
+    }
+
+    // P_CheckPosition's
+    //  for bx, by: if (!P_BlockThingsIterator(bx, by, PIT_CheckThing))
+    //  return false;
+    // The tests PIT_CheckThing starts with (none of SOLID / SPECIAL /
+    // SHOOTABLE, not within blockdist, tmthing itself) only return true
+    // without touching anything, so they're done here with the mobj
+    // arrays in locals, and only the things that get past them are handed
+    // to PIT_CheckThing, in the same order. bnext is read after the call,
+    // like the iterator does.
+    function P_CheckThingBlocks(xl as Number, xh as Number, yl as Number, yh as Number) as Boolean {
+        var mflags = PMobj.mobjs_flags;
+        var mradius = PMobj.mobjs_radius;
+        var mx = PMobj.mobjs_x;
+        var my = PMobj.mobjs_y;
+        var bnext = PMobj.mobjs_bnext;
+        var blocklinks = PSetup.blocklinks;
+        var thing = tmthing;
+        var radius = mradius[thing];
+        var x = tmx;
+        var y = tmy;
+        var mobj;
+        var d;
+
         for (var bx = xl; bx <= xh; bx++) {
             for (var by = yl; by <= yh; by++) {
-                if (!PMapUtl.P_BlockLinesIterator(bx, by, func)) {
-                    return false;
+                if (bx < 0
+                    || by < 0
+                    || bx >= PSetup.bmapwidth
+                    || by >= PSetup.bmapheight) {
+                    continue;
+                }
+                for (mobj = blocklinks[by * PSetup.bmapwidth + bx];
+                     mobj != -1;
+                     mobj = bnext[mobj]) {
+                    if ((mflags[mobj] & (PMobj.MF_SOLID | PMobj.MF_SPECIAL | PMobj.MF_SHOOTABLE)) == 0) {
+                        continue;
+                    }
+
+                    // blockdist is mradius[mobj] + radius
+                    d = mx[mobj] - x;
+                    if ((d < 0 ? -d : d) >= mradius[mobj] + radius) {
+                        // didn't hit it
+                        continue;
+                    }
+                    d = my[mobj] - y;
+                    if ((d < 0 ? -d : d) >= mradius[mobj] + radius) {
+                        // didn't hit it
+                        continue;
+                    }
+
+                    // don't clip against self
+                    if (mobj == thing) {
+                        continue;
+                    }
+
+                    if (!PIT_CheckThing(mobj)) {
+                        return false;
+                    }
                 }
             }
         }
+        return true;
+    }
 
+    // P_CheckPosition's
+    //  for bx, by: if (!P_BlockLinesIterator(bx, by, PIT_CheckLine))
+    //  return false;
+    // with the iterator (see it for the blockmap unpacking and the leading
+    // 0 of each list) written out, and PIT_CheckLine's bounding box test,
+    // which only returns true, done here before calling it.
+    function P_CheckLineBlocks(xl as Number, xh as Number, yl as Number, yh as Number) as Boolean {
+        var blockmaplump = PSetup.blockmaplump;
+        var linevalid = PSetup.lines_validcount;
+        var valid = RMain.validcount;
+        var lines_v1 = PSetup.lines_v1;
+        var lines_v2 = PSetup.lines_v2;
+        var vx = PSetup.vertexes_x;
+        var vy = PSetup.vertexes_y;
+        var bbox = tmbbox;
+        var list;
+        var w;
+        var ld;
+        var a;
+        var b;
+
+        for (var bx = xl; bx <= xh; bx++) {
+            for (var by = yl; by <= yh; by++) {
+                if (bx < 0
+                    || by < 0
+                    || bx >= PSetup.bmapwidth
+                    || by >= PSetup.bmapheight) {
+                    continue;
+                }
+
+                list = 4 + by * PSetup.bmapwidth + bx;
+                w = blockmaplump[list >> 1];
+                list = (list & 1) != 0 ? w >> 16 : (w << 16) >> 16;
+
+                for (; true; list++) {
+                    w = blockmaplump[list >> 1];
+                    ld = (list & 1) != 0 ? w >> 16 : (w << 16) >> 16;
+                    if (ld == -1) {
+                        break;
+                    }
+
+                    if (linevalid[ld] == valid) {
+                        // line has already been checked
+                        continue;
+                    }
+
+                    linevalid[ld] = valid;
+
+                    // PIT_CheckLine: ld->bbox from the vertexes
+                    a = vx[lines_v1[ld]];
+                    b = vx[lines_v2[ld]];
+                    if (bbox[MBBox.BOXRIGHT] <= (a < b ? a : b)
+                        || bbox[MBBox.BOXLEFT] >= (a < b ? b : a)) {
+                        continue;
+                    }
+                    a = vy[lines_v1[ld]];
+                    b = vy[lines_v2[ld]];
+                    if (bbox[MBBox.BOXTOP] <= (a < b ? a : b)
+                        || bbox[MBBox.BOXBOTTOM] >= (a < b ? b : a)) {
+                        continue;
+                    }
+
+                    if (!PIT_CheckLine(ld)) {
+                        return false;
+                    }
+                }
+            }
+        }
         return true;
     }
 
