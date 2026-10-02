@@ -1053,27 +1053,32 @@ module PSpec {
         }
 
         //	ANIMATE FLATS AND TEXTURES GLOBALLY
+        // (module arrays and loop bounds in locals: this runs every tic
+        // and module variable reads are slow on the watch)
         var texturetranslation = RData.texturetranslation;
         var flattranslation = RData.flattranslation;
-        for (var anim = 0; anim < lastanim; anim++) {
-            var basepic = anims_basepic[anim];
-            var numpics = anims_numpics[anim];
-            var speed = anims_speed[anim];
-            var istexture = anims_istexture[anim];
+        var a_basepic = anims_basepic;
+        var a_numpics = anims_numpics;
+        var a_speed = anims_speed;
+        var a_istexture = anims_istexture;
+        var nanims = lastanim;
+        for (var anim = 0; anim < nanims; anim++) {
+            var basepic = a_basepic[anim];
+            var numpics = a_numpics[anim];
+            var istexture = a_istexture[anim];
+            var t = leveltime / a_speed[anim];
+            var trans = istexture ? texturetranslation : flattranslation;
             for (var i = basepic; i < basepic + numpics; i++) {
-                var pic = basepic + ((leveltime / speed + i) % numpics);
-                if (istexture) {
-                    texturetranslation[i] = pic;
-                } else {
-                    flattranslation[i] = pic;
-                }
+                trans[i] = basepic + ((t + i) % numpics);
             }
         }
 
         //	ANIMATE LINE SPECIALS
-        for (var i = 0; i < numlinespecials; i++) {
+        var nspecials = numlinespecials;
+        var lines_special = PSetup.lines_special;
+        for (var i = 0; i < nspecials; i++) {
             var line = linespeciallist[i];
-            switch (PSetup.lines_special[line]) {
+            switch (lines_special[line]) {
                 case 48:
                     // EFFECT FIRSTCOL SCROLL +
                     PSetup.sides_textureoffset[PSetup.lines_sidenum[line * 2]] += MFixed.FRACUNIT;

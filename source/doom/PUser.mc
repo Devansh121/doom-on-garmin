@@ -43,6 +43,11 @@ module PUser {
     // Calculate the walking / running height adjustment
     //
     function P_CalcHeight(player as Number) as Void {
+        // (arrays in locals, module variable reads are slow on the watch)
+        var pviewz = DPlayer.players_viewz;
+        var pviewheight = DPlayer.players_viewheight;
+        var mz = PMobj.mobjs_z;
+        var mceilingz = PMobj.mobjs_ceilingz;
         var angle;
         var bob;
         var mo = DPlayer.players_mo[player];
@@ -65,13 +70,13 @@ module PUser {
         DPlayer.players_bob[player] = pbob;
 
         if ((DPlayer.players_cheats[player] & DPlayer.CF_NOMOMENTUM) != 0 || !onground) {
-            DPlayer.players_viewz[player] = PMobj.mobjs_z[mo] + PLocal.VIEWHEIGHT;
+            pviewz[player] = mz[mo] + PLocal.VIEWHEIGHT;
 
-            if (DPlayer.players_viewz[player] > PMobj.mobjs_ceilingz[mo] - 4 * MFixed.FRACUNIT) {
-                DPlayer.players_viewz[player] = PMobj.mobjs_ceilingz[mo] - 4 * MFixed.FRACUNIT;
+            if (pviewz[player] > mceilingz[mo] - 4 * MFixed.FRACUNIT) {
+                pviewz[player] = mceilingz[mo] - 4 * MFixed.FRACUNIT;
             }
 
-            DPlayer.players_viewz[player] = PMobj.mobjs_z[mo] + DPlayer.players_viewheight[player];
+            pviewz[player] = mz[mo] + pviewheight[player];
             return;
         }
 
@@ -82,7 +87,7 @@ module PUser {
         if (DPlayer.players_playerstate[player] == DPlayer.PST_LIVE) {
             // (worked on in locals, stored back below)
             var deltaviewheight = DPlayer.players_deltaviewheight[player];
-            var viewheight = DPlayer.players_viewheight[player] + deltaviewheight;
+            var viewheight = pviewheight[player] + deltaviewheight;
 
             if (viewheight > PLocal.VIEWHEIGHT) {
                 viewheight = PLocal.VIEWHEIGHT;
@@ -102,13 +107,13 @@ module PUser {
                     deltaviewheight = 1;
                 }
             }
-            DPlayer.players_viewheight[player] = viewheight;
+            pviewheight[player] = viewheight;
             DPlayer.players_deltaviewheight[player] = deltaviewheight;
         }
-        DPlayer.players_viewz[player] = PMobj.mobjs_z[mo] + DPlayer.players_viewheight[player] + bob;
+        pviewz[player] = mz[mo] + pviewheight[player] + bob;
 
-        if (DPlayer.players_viewz[player] > PMobj.mobjs_ceilingz[mo] - 4 * MFixed.FRACUNIT) {
-            DPlayer.players_viewz[player] = PMobj.mobjs_ceilingz[mo] - 4 * MFixed.FRACUNIT;
+        if (pviewz[player] > mceilingz[mo] - 4 * MFixed.FRACUNIT) {
+            pviewz[player] = mceilingz[mo] - 4 * MFixed.FRACUNIT;
         }
     }
 
@@ -208,19 +213,21 @@ module PUser {
         var powers = DPlayer.players_powers;
         var pw = player * DoomDef.NUMPOWERS;
 
+        var mflags = PMobj.mobjs_flags;
+
         // fixme: do this in the cheat code
         if ((DPlayer.players_cheats[player] & DPlayer.CF_NOCLIP) != 0) {
-            PMobj.mobjs_flags[mo] |= PMobj.MF_NOCLIP;
+            mflags[mo] |= PMobj.MF_NOCLIP;
         } else {
-            PMobj.mobjs_flags[mo] &= ~PMobj.MF_NOCLIP;
+            mflags[mo] &= ~PMobj.MF_NOCLIP;
         }
 
         // chain saw run forward
-        if ((PMobj.mobjs_flags[mo] & PMobj.MF_JUSTATTACKED) != 0) {
+        if ((mflags[mo] & PMobj.MF_JUSTATTACKED) != 0) {
             DPlayer.players_cmd_angleturn[player] = 0;
             DPlayer.players_cmd_forwardmove[player] = 0xc800 / 512;
             DPlayer.players_cmd_sidemove[player] = 0;
-            PMobj.mobjs_flags[mo] &= ~PMobj.MF_JUSTATTACKED;
+            mflags[mo] &= ~PMobj.MF_JUSTATTACKED;
         }
 
         if (DPlayer.players_playerstate[player] == DPlayer.PST_DEAD) {
