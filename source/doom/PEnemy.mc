@@ -304,13 +304,17 @@ module PEnemy {
             ISystem.I_Error("Weird actor->movedir!");
         }
 
-        var speed = PMobj.info(actor, Info.MI_SPEED);
+        var speed = Info.mobjinfo[PMobj.mobjs_type[actor] * Info.MI_SIZE + Info.MI_SPEED];
         var tryx = PMobj.mobjs_x[actor] + speed * xspeed[movedir];
         var tryy = PMobj.mobjs_y[actor] + speed * yspeed[movedir];
 
         // warning: 'catch', 'throw', and 'try'
         // are all C++ reserved words
-        var try_ok = P_TryMove(actor, tryx, tryy);
+        // (P_TryMove above written out here: one call and one frame less
+        // per monster step, ahead of P_CheckPosition's deep call chain)
+        var try_ok = testTryMove != null
+            ? (testTryMove as Method).invoke(actor, tryx, tryy) as Boolean
+            : PMap.P_TryMove(actor, tryx, tryy);
 
         if (!try_ok) {
             // open any specials
@@ -668,6 +672,13 @@ module PEnemy {
     // so it tries to close as fast as possible
     //
     function A_Chase(actor as Number) as Void {
+        // (flags and the mobjinfo row in locals instead of the PMobj.info
+        // calls: calls and module variable reads are slow on the watch.
+        // Only these, since this frame is under P_Move and P_CheckSight.)
+        var mflags = PMobj.mobjs_flags;
+        var mi = Info.mobjinfo;
+        var info = PMobj.mobjs_type[actor] * Info.MI_SIZE;
+
         if (PMobj.mobjs_reactiontime[actor] != 0) {
             PMobj.mobjs_reactiontime[actor]--;
         }
@@ -699,19 +710,19 @@ module PEnemy {
 
         var target = PMobj.mobjs_target[actor];
         if (target == -1
-            || (PMobj.mobjs_flags[target] & PMobj.MF_SHOOTABLE) == 0) {
+            || (mflags[target] & PMobj.MF_SHOOTABLE) == 0) {
             // look for a new target
             if (P_LookForPlayers(actor, true)) {
                 return;     // got a new target
             }
 
-            PMobj.P_SetMobjState(actor, PMobj.info(actor, Info.MI_SPAWNSTATE));
+            PMobj.P_SetMobjState(actor, mi[info + Info.MI_SPAWNSTATE]);
             return;
         }
 
         // do not attack twice in a row
-        if ((PMobj.mobjs_flags[actor] & PMobj.MF_JUSTATTACKED) != 0) {
-            PMobj.mobjs_flags[actor] &= ~PMobj.MF_JUSTATTACKED;
+        if ((mflags[actor] & PMobj.MF_JUSTATTACKED) != 0) {
+            mflags[actor] &= ~PMobj.MF_JUSTATTACKED;
             if (DoomStat.gameskill != DoomDef.sk_nightmare && !DoomStat.fastparm) {
                 P_NewChaseDir(actor);
             }
@@ -719,10 +730,10 @@ module PEnemy {
         }
 
         // check for melee attack
-        var meleestate = PMobj.info(actor, Info.MI_MELEESTATE);
+        var meleestate = mi[info + Info.MI_MELEESTATE];
         if (meleestate != 0
             && P_CheckMeleeRange(actor)) {
-            var attacksound = PMobj.info(actor, Info.MI_ATTACKSOUND);
+            var attacksound = mi[info + Info.MI_ATTACKSOUND];
             if (attacksound != 0) {
                 SSound.S_StartSound(actor, attacksound);
             }
@@ -733,13 +744,13 @@ module PEnemy {
 
         // check for missile attack
         // (both gotos to nomissile become this if)
-        var missilestate = PMobj.info(actor, Info.MI_MISSILESTATE);
+        var missilestate = mi[info + Info.MI_MISSILESTATE];
         if (missilestate != 0) {
             if (!(DoomStat.gameskill < DoomDef.sk_nightmare
                   && !DoomStat.fastparm && PMobj.mobjs_movecount[actor] != 0)
                 && P_CheckMissileRange(actor)) {
                 PMobj.P_SetMobjState(actor, missilestate);
-                PMobj.mobjs_flags[actor] |= PMobj.MF_JUSTATTACKED;
+                mflags[actor] |= PMobj.MF_JUSTATTACKED;
                 return;
             }
         }
@@ -763,7 +774,7 @@ module PEnemy {
         }
 
         // make active sound
-        var activesound = PMobj.info(actor, Info.MI_ACTIVESOUND);
+        var activesound = mi[info + Info.MI_ACTIVESOUND];
         if (activesound != 0
             && MRandom.P_Random() < 3) {
             SSound.S_StartSound(actor, activesound);
